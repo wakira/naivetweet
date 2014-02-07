@@ -1,0 +1,24 @@
+tabname.dat:
+Byte		: content
+0 - 7		: primary id count
+8 - 15		: fl-head
+16 - x		: first line:
+	16 - 17 : meta : determine if deleted (no)
+	17 - x	: actual data (first primary id if there's one)
+x - y		: if free:
+	x - x+1 : meta : determine if deleted (yes)
+	x+1 - x+8: next free
+
+tabname_colname.idx:
+Byte		: content
+0 - 7		: fl-head
+8 - 11		: key type size
+12 - 15		: value type size
+16 - 19		: block size
+20 - 27		: root node pointer
+~ - 4095	: padding
+4096 - x	: actual data
+	in a chunk:
+		0 - 1 : single node/leaf/inner
+		2 - 3 :	slot_use
+		4 - 
