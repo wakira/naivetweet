@@ -7,6 +7,7 @@
 #include <string>
 #include <cstdint>
 #include "kikutil.h"
+#include "bptree.hpp"
 
 /*
  * Disk storage

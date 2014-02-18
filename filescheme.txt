@@ -19,6 +19,6 @@ Byte		: content
 ~ - 4095	: padding
 4096 - x	: actual data
 	in a chunk:
-		0 - 1 : single node/leaf/inner
-		2 - 3 :	slot_use
-		4 - 
+		0 - 0 : single node/leaf/inner
+		1 - 2 :	slot_use
+		2 - 

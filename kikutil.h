@@ -18,6 +18,7 @@
 #include <functional>
 #include <istream>
 #include <ostream>
+#include <cassert>
 
 /* Macros */
 
@@ -39,6 +40,15 @@ inline void binary_read(std::istream &ifs, T &data) {
 template <typename T>
 inline void binary_write(std::ostream &ofs, const T &data) {
 	ofs.write(reinterpret_cast<char const*>(&data), sizeof(T));
+}
+
+// Functions for array operation
+template <typename T>
+inline void array_move(T* array, size_t array_size, int beginpos, int move) {
+	assert(move > 0);
+	for (int i = array_size - 1; i >= beginpos + move; --i) {
+		array[i] = array[i - move];
+	}
 }
 
 /* Classes */

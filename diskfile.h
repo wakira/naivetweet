@@ -47,8 +47,14 @@ const FilePos kValSizePos = 12;
 const FilePos kBlockSizePos = 16;
 const FilePos kRootPointerPos = 20;
 
-enum { SINGLE = 0, INNERNODE = 1, LEAF = 2, OVERFLOW = 3} NodeType;
+enum NodeType { SINGLE = 0, INNER = 1, LEAF = 2, OVF = 3};
 
+// consumeFreeSpace
+// ----------------
+// consume a piece of free space in free list (or append to the
+// end of file, return position which is ready for r/w
+//
+FilePos consumeFreeSpace(std::fstream &stream);
 }
 
 #endif // DISKFILE_H

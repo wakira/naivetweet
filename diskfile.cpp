@@ -44,3 +44,20 @@ FilePos DatFile::consumeFreeSpace(fstream &stream) {
 	}
 	return stream.tellp();
 }
+
+FilePos IdxFile::consumeFreeSpace(fstream &stream) {
+	FilePos next_flpos;
+	getFromPos(stream,IdxFile::kFlHeadPos,next_flpos); // get a chunk from the head of free list
+	if (next_flpos == 0) {
+		// no space in free list
+		// return position pointing to file end
+		stream.seekp(0, stream.end);
+	} else {
+		FilePos current_chunk = next_flpos;
+		// a free chunk is found
+		// remove it from free list
+		getFromPos(stream,next_flpos,next_flpos);
+		writeToPos(stream,IdxFile::kFlHeadPos,next_flpos);
+	}
+	return stream.tellp();
+}
