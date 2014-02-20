@@ -14,12 +14,36 @@
 #include <cassert>
 #include "diskfile.h"
 #include "kikutil.h"
+#include "spstring.hpp"
 
 #ifndef NDEBUG
 #include <iostream>
 #endif
 
 const size_t kBlockSize = 4096;
+
+template <>
+inline void binary_read(std::istream &ifs, SPString &data) {
+	data.str.clear();
+	size_t count;
+	char byte;
+	while ((byte = ifs.get()) != '\0') {
+		data.str.push_back(byte);
+		++count;
+	}
+	++count;
+	for (; count < data.length; ++count)
+		ifs.get();
+}
+
+template <>
+inline void binary_write(std::ostream &ofs, const SPString &data) {
+	size_t count;
+	for (count = 0; count != data.str.length(); ++count)
+		ofs.put(data.str[count]);
+	for (; count < data.length; ++count)
+		ofs.put('\0');
+}
 
 // The BPTree class
 // Stores on disk file
@@ -29,7 +53,7 @@ class BPTree {
 private:
 	// Order-related and constants for implementation
 
-	static const size_t kBPOrder = 6; // FIXME this value should be calculated from BlockSize
+	static const size_t kBPOrder = 5; // FIXME this value should be calculated from BlockSize
 	static const size_t kInnerSlotMinChildren = (kBPOrder + 1)/2;
 	static const size_t kLeafSlotMin = (kBPOrder)/2;
 	static const size_t kInnerNodePadding = 0; // FIXME
@@ -53,7 +77,7 @@ public:
 	struct Leaf : public Node {
 		KeyType keys[kBPOrder - 1];
 		ValType data[kBPOrder - 1];
-		bool overflowptr[kBPOrder - 1];
+		char overflowptr[kBPOrder - 1];
 		// Leafs are linked
 		FilePos next_leaf;
 		~Leaf() {}
@@ -173,6 +197,8 @@ typename BPTree<KeyType,ValType>::Node* BPTree<KeyType,ValType>::
 		for (size_t i = 0; i != kBPOrder - 1; ++i)
 			binary_read(stream,leaf->data[i]);
 		binary_read(stream,leaf->next_leaf);
+		for (size_t i = 0; i != kBPOrder - 1; ++i)
+			binary_read(stream,leaf->overflowptr[i]);
 		break;
 	}
 	default: {
@@ -211,8 +237,26 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 	// Find in that node
 	// Search in inner node, find correct children and continue the recursion
 	size_t data_index = find_lower_(leaf_node, key);
-	// TODO process duplicate key
-	retval.push_back(leaf_node->data[data_index]);
+	if (leaf_node->overflowptr[data_index]) {
+		// process duplicate key
+		Leaf *overflow = dynamic_cast<Leaf*>(
+					load_node_(stream,leaf_node->data[data_index]));
+		while (true) {
+			for (size_t i = 0; i != overflow->slotuse; ++i)
+				retval.push_back(overflow->data[i]);
+			if (overflow->next_leaf == 0)
+				break;
+			else {
+				Leaf *next_overflow = dynamic_cast<Leaf*>(
+							load_node_(stream,overflow->next_leaf));
+				delete overflow;
+				overflow = next_overflow;
+			}
+		}
+		delete overflow;
+	} else if (leaf_node->keys[data_index] == key)
+		// normal situation, determine if key is found and then add the key
+		retval.push_back(leaf_node->data[data_index]);
 	if (p != root_)
 		delete p;
 	return retval;
@@ -333,8 +377,53 @@ bool BPTree<KeyType,ValType>::
 			break;
 	}
 	if (duplicate) {
-		// TODO duplicate key
-
+		// duplicate key
+		if (leaf_node->overflowptr[i]) {
+			// already has overflow node
+			// locate the last one and insert in it
+			Leaf *overflow = dynamic_cast<Leaf*>(
+						load_node_(stream,leaf_node->data[i]));
+			FilePos overflow_pos = leaf_node->data[i];
+			while (overflow->next_leaf != 0) {
+				overflow_pos = overflow->next_leaf;
+				Leaf *next_overflow = dynamic_cast<Leaf*>(
+							load_node_(stream,overflow->next_leaf));
+				delete overflow;
+				overflow = next_overflow;
+			}
+			if (overflow->isFull()) {
+				// require new node
+				Leaf *new_overflow = new Leaf();
+				new_overflow->nodetype = IdxFile::OVF;
+				new_overflow->slotuse = 1;
+				new_overflow->keys[0] = key;
+				new_overflow->data[0] = value;
+				FilePos new_overflow_pos = IdxFile::consumeFreeSpace(stream);
+				overflow->next_leaf = new_overflow_pos;
+				write_node_(stream,new_overflow_pos,new_overflow);
+				delete new_overflow;
+			} else {
+				overflow->keys[overflow->slotuse] = key;
+				overflow->data[overflow->slotuse] = value;
+				overflow->slotuse++;
+			}
+			write_node_(stream,overflow_pos,overflow); // write changes back
+			delete overflow;
+		} else {
+			// need to create overflow node
+			Leaf *new_overflow = new Leaf();
+			new_overflow->nodetype = IdxFile::OVF;
+			new_overflow->slotuse = 2;
+			new_overflow->keys[1] = key;
+			new_overflow->data[1] = value;
+			new_overflow->keys[0] = key;
+			new_overflow->data[0] = leaf_node->data[i];
+			FilePos new_overflow_pos = IdxFile::consumeFreeSpace(stream);
+			leaf_node->data[i] = new_overflow_pos;
+			leaf_node->overflowptr[i] = true;
+			write_node_(stream,new_overflow_pos,new_overflow);
+			delete new_overflow;
+		}
 		return true;
 	} else if (leaf_node->isFull()) {
 		return false; // need split
@@ -379,6 +468,8 @@ void BPTree<KeyType,ValType>::
 		for (size_t i = 0; i != kBPOrder - 1; ++i)
 			binary_write(stream, leaf->data[i]);
 		binary_write(stream,leaf->next_leaf);
+		for (size_t i = 0; i != kBPOrder - 1; ++i)
+			binary_write(stream, leaf->overflowptr[i]);
 		// padding
 		byte = 0;
 		for (size_t i = 0; i != kLeafPadding; ++i)

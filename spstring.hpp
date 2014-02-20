@@ -5,9 +5,9 @@
 
 struct SPString
 {
-	SPString(int len, const std::string &source) :
+	SPString(size_t len, const std::string &source) :
 		length(len), str(source) {}
-	int length;
+	size_t length;
 	std::string str;
 
 	bool operator==(const SPString &rval) {
