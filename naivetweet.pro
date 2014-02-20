@@ -12,7 +12,8 @@ HEADERS += \
     naivedb.h \
     bptree.hpp \
     kikutil.h \
-    diskfile.h
+    diskfile.h \
+    spstring.hpp
 
 
 unix: LIBS += -lncursesw
