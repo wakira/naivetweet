@@ -4,7 +4,7 @@ Byte		: content
 8 - 15		: fl-head
 16 - x		: first line:
 	16 - 17 : meta : determine if deleted (no)
-	17 - x	: actual data (first primary id if there's one)
+	17 - x	: actual data (first primary id)
 x - y		: if free:
 	x - x+1 : meta : determine if deleted (yes)
 	x+1 - x+8: next free

@@ -1,5 +1,14 @@
 #include "diskfile.h"
+#include <sys/stat.h>
 using namespace std;
+
+bool fileExists(const char *filename) {
+	struct stat buf;
+	if (stat(filename, &buf) != -1) {
+		return true;
+	}
+	return false;
+}
 
 int64_t DatFile::increasePrimaryId(fstream &stream) {
 	// increase the first 8 byte of table file

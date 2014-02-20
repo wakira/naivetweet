@@ -25,13 +25,17 @@ enum class DBType {
 };
 
 struct DBData {
-	DBType type_;
-	union {
-		bool boolean;
-		int int32;
-		int64_t int64;
-		std::string str;
-	};
+	DBType type;
+	char boolean;
+	int int32;
+	int64_t int64;
+	std::string str;
+
+	DBData() = default;
+	DBData(DBType fromtype) : type(fromtype) {}
+
+	bool operator==(const DBData &rval);
+	bool operator!=(const DBData &rval);
 };
 
 class NaiveDB {
@@ -44,12 +48,13 @@ private:
 		bool indexed;
 		bool unique;
 		DBType type;
-		int length;
+		size_t length;
 	};
 	struct Table {
-		int data_length;
-		std::vector<Column> scheme;
+		size_t data_length;
+		std::vector<Column> schema;
 		std::unordered_map<std::string,int> colname_index;
+		std::unordered_map<std::string, void*> bptree;
 	};
 	// Data members
 
@@ -57,7 +62,15 @@ private:
 
 	// Helper functions
 
+	void* newBPTree_(const std::string &tabname,const Column &col);
+	void insertInBPTree_(void* bptree,const Column &col,DBData key,FilePos value);
+	std::vector<FilePos> findInBPTree_(void* bptree,const Column &col,DBData key);
 	void loadMeta_(const std::string &dbname);
+	void loadIndex_();
+	DBData getDBData_(std::fstream &stream,DBType type);
+	DBData getDBDataAtPos_(std::fstream &stream,DBType type,FilePos pos);
+	bool compareDBDataAtPos_(std::fstream &stream,FilePos pos,DBData comp);
+	int calculateColumnOffset_(const std::string &tabname,const std::string &colname);
 public:
 	// Public methods
 
@@ -66,11 +79,8 @@ public:
 	void del(const std::string &tabname, DBData primary_key);
 	void modify(const std::string &tabname, const std::string &colname,
 				DBData val);
-
-	/*
-	DBData get(const std::string &tabname, const std::string &key_col,
+	std::vector<DBData> get(const std::string &tabname, const std::string &key_col,
 			   DBData key, const std::string &dest_col);
-			   */
 	std::vector<DBData> rangeGet(const std::string &tabname,
 								 const std::string &key_col,
 								 DBData first, DBData last,

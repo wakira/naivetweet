@@ -25,8 +25,20 @@ bool validIntro(char *line);
 /* Global variables */
 NaiveDB *db;
 
+void debug() {
+	BPTree<long,long> bp("test.idx");
+	for (long i = 100; i >= 1; --i)
+		bp.insert(i,i);
+	for (long i = 1; i <= 100; ++i)
+		printf("%d ",bp.find(i).at(0));
+	printf("\n");
+}
+
 int main()
 {
+	debug();
+	return 0;
+	// DEBUG IS OVER
 	setlocale(LC_ALL,"");
 	initscr();
 	cbreak();
@@ -89,6 +101,25 @@ void registerAccount() {
 			intro, validIntro, "  Too long!");
 
 	// TODO
+	vector<DBData> line;
+	DBData user_d(DBType::STRING), passwd_d(DBType::STRING),
+			birthday_d(DBType::STRING), name_d(DBType::STRING),
+			gender_d(DBType::BOOLEAN), intro_d(DBType::STRING);
+	user_d.str = user;
+	line.push_back(user_d);
+	passwd_d.str = passwd;
+	line.push_back(passwd_d);
+	birthday_d.str = birthday;
+	line.push_back(birthday_d);
+	name_d.str = name;
+	line.push_back(name_d);
+	gender_d.boolean = strcmp(gender,"M") == 0? true:false;
+	line.push_back(gender_d);
+	intro_d.str = intro;
+	line.push_back(intro_d);
+	db->insert("userinfo",line);
+
+	login();
 }
 
 void login() {
@@ -149,9 +180,12 @@ bool validUsername(char *user) {
 	for (size_t i = 1; i != len; ++i)
 		if (!isalpha(user[i]) && !isdigit(user[i]) && user[i] != '_')
 			return false;
-	// TODO check if the username already exists
-
-	return true;
+	// check if the username already exists
+	DBData query_dat;
+	query_dat.type = DBType::STRING;
+	query_dat.str = user;
+	vector<DBData> query_result = db->get("userinfo","username",query_dat,"id");
+	return query_result.empty();
 }
 
 bool validName(char *name) {

@@ -20,11 +20,14 @@ void getFromPos(std::istream &ifs, FilePos pos, T &data) {
 	binary_read(ifs, data);
 }
 
+bool fileExists(const char* filename);
+
 namespace DatFile {
 // File layout definition
 
 const FilePos kPidPos = 0;
 const FilePos kFlHeadPos = 8;
+const FilePos kRecordStartPos = 16;
 
 int64_t increasePrimaryId(std::fstream &stream);
 int64_t getPrimaryId(std::istream &is);
