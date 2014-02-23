@@ -54,18 +54,60 @@
 			</columns>
 		</table>
 		<table>
-			<name>relation</name>
+			<name>afob</name>
 			<columns>
 				<column>
-					<name>uid</name>
+					<name>a</name>
 					<type>int64</type>
 					<index>yes</index>
 					<unique>no</unique>
 				</column>
 				<column>
-					<name>follower_uid</name>
+					<name>b</name>
 					<type>int64</type>
 					<index>yes</index>
+					<unique>no</unique>
+				</column>
+				<column>
+					<name>deleted</name>
+					<type>boolean</type>
+					<index>no</index>
+					<unique>no</unique>
+				</column>
+			</columns>
+		</table>
+		<table>
+			<name>tweets</tweets>
+			<columns>
+				<column>
+					<name>content</name>
+					<type>string</type>
+					<length>141</length>
+					<index>no</index>
+					<unique>no</unique>
+				</column>
+				<column>
+					<name>publisher</name>
+					<type>int64</type>
+					<index>yes</index>
+					<unique>no</unique>
+				</column>
+				<column>
+					<name>author</name>
+					<type>int64</type>
+					<index>no</index>
+					<unique>no</unique>
+				</column>
+				<column>
+					<name>time</name>
+					<type>int32</type>
+					<index>no</index>
+					<unique>no</unique>
+				</column>
+				<column>
+					<name>deleted</name>
+					<type>boolean</type>
+					<index>no</index>
 					<unique>no</unique>
 				</column>
 			</columns>

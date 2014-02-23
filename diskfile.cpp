@@ -2,6 +2,12 @@
 #include <sys/stat.h>
 using namespace std;
 
+bool DatFile::isRecordDeleted(istream &is, FilePos recordpos) {
+	char byte;
+	getFromPos(is,recordpos - sizeof(char),byte);
+	return byte == 1;
+}
+
 bool fileExists(const char *filename) {
 	struct stat buf;
 	if (stat(filename, &buf) != -1) {

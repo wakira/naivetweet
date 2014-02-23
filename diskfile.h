@@ -27,10 +27,11 @@ namespace DatFile {
 
 const FilePos kPidPos = 0;
 const FilePos kFlHeadPos = 8;
-const FilePos kRecordStartPos = 16;
+const FilePos kRecordStartPos = 17;
 
 int64_t increasePrimaryId(std::fstream &stream);
 int64_t getPrimaryId(std::istream &is);
+bool isRecordDeleted(std::istream &is, FilePos recordpos);
 
 // consumeFreeSpace
 // ----------------

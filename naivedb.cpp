@@ -3,6 +3,7 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include "naivedb.h"
 #include "diskfile.h"
+#include "spstring.hpp"
 
 using namespace std;
 using namespace boost::property_tree;
@@ -72,16 +73,6 @@ DBData NaiveDB::getDBDataAtPos_(fstream &stream, DBType type, FilePos pos) {
 	return getDBData_(stream,type);
 }
 
-int NaiveDB::calculateColumnOffset_(const string &tabname, const string &colname) {
-	int offset = 0;
-	Table tab = tables_.at(tabname);
-	int col_index = tab.colname_index.at(colname);
-	for (int i = 0; i != col_index; ++i) {
-		offset += tab.schema[i].length;
-	}
-	return offset;
-}
-
 bool NaiveDB::compareDBDataAtPos_(fstream &stream, FilePos pos, DBData comp) {
 	DBData gotval = getDBDataAtPos_(stream,comp.type,pos);
 	return gotval == comp;
@@ -98,11 +89,10 @@ std::vector<FilePos> NaiveDB::findInBPTree_(void *bptree, const Column &col, DBD
 		return tree->find(key.int64);
 	}
 	case DBType::STRING: {
-		// TODO
-
+		BPTree<string,FilePos> *tree = static_cast<BPTree<string,FilePos>*>(bptree);
+		return tree->find(key.str);
 	}
 	default: {
-		// TOOD
 		assert(0);
 	}
 	}
@@ -122,10 +112,12 @@ void NaiveDB::insertInBPTree_(void* bptree,const Column &col,DBData key, FilePos
 		return;
 	}
 	case DBType::STRING: {
-		// TODO
+		BPTree<string,FilePos> *tree = static_cast<BPTree<string,FilePos>*>(bptree);
+		tree->insert(key.str,value);
+		return;
 	}
 	default: {
-		// TOOD
+		assert(0);
 	}
 	}
 }
@@ -141,11 +133,10 @@ void* NaiveDB::newBPTree_(const string &tabname, const Column &col) {
 		addr = new BPTree<int64_t,FilePos>(filename);
 		return addr;
 	case DBType::STRING:
-		// TODO
-		break;
+		addr = new BPTree<string,FilePos>(filename,col.length);
+		return addr;
 	default:
-		// TODO
-		break;
+		assert(0);
 	}
 
 }
@@ -187,6 +178,7 @@ void NaiveDB::loadMeta_(const string &dbname) {
 		idcol.indexed = true;
 		idcol.type = DBType::INT64;
 		idcol.unique = true;
+		idcol.offset = 0;
 		tables_[tabname].colname_index[idcol.name] =
 				tables_[tabname].schema.size();
 		tables_[tabname].schema.push_back(idcol);
@@ -227,6 +219,8 @@ void NaiveDB::loadMeta_(const string &dbname) {
 				newcol.unique = true;
 			else
 				newcol.unique = false;
+			// set offset
+			newcol.offset = tables_[tabname].data_length;
 
 			// add the column to table
 			tables_[tabname].colname_index[newcol.name] =
@@ -249,12 +243,28 @@ void NaiveDB::loadIndex_() {
 
 NaiveDB::NaiveDB(const string &dbname) {
 	loadMeta_(dbname);
+	checkDatFile_();
 	loadIndex_();
+}
+
+void NaiveDB::checkDatFile_() {
+	for (auto pair : tables_) {
+		string filename = pair.first + ".dat";
+		Table tab = pair.second;
+		if (!fileExists(filename.c_str())) {
+			// create an empty dat file
+			fstream datfile(filename.c_str(), ios::out | ios::binary);
+			datfile.seekp(DatFile::kRecordStartPos - 2);
+			char byte = 0;
+			datfile.put(byte);
+			datfile.close();
+		}
+	}
 }
 
 void NaiveDB::insert(const string &tabname, std::vector<DBData> line) {
 	Table target_tab = tables_.at(tabname);
-	fstream tabfile(tabname + ".dat", ios::binary);
+	fstream tabfile(tabname + ".dat", ios::in | ios::out | ios::binary);
 	int64_t new_pid = DatFile::increasePrimaryId(tabfile);
 	// find a free chunk and modify meta information
 	FilePos record_pos = DatFile::consumeFreeSpace(tabfile);
@@ -301,42 +311,68 @@ void NaiveDB::insert(const string &tabname, std::vector<DBData> line) {
 
 void NaiveDB::del(const string &tabname, DBData primary_key) {
 	Table target_tab = tables_.at(tabname);
-	fstream tabfile(tabname + ".dat", ios::binary);
+	fstream tabfile(tabname + ".dat", ios::in | ios::out | ios::binary);
 	// TODO locate record by index
 }
 
-std::vector<DBData> NaiveDB::get(const string &tabname, const string &key_col, DBData key, const string &dest_col) {
-	std::vector<DBData> retval;
+DBData NaiveDB::get(RecordHandle handle, const string &dest_col) {
+	Table target_tab = tables_.at(handle.tabname);
+	int dest_col_index = target_tab.colname_index.at(dest_col);
+	Column destcol = target_tab.schema.at(dest_col_index);
+	fstream tabfile(handle.tabname + ".dat", ios::in | ios::binary);
+	return getDBDataAtPos_(tabfile,destcol.type,handle.filepos + destcol.offset);
+}
+
+std::vector<RecordHandle> NaiveDB::query(const string &tabname,
+					const string &key_col, DBData key) {
+	std::vector<RecordHandle> retval;
 	Table target_tab = tables_.at(tabname);
 	int col_index = target_tab.colname_index.at(key_col);
-	int dest_col_index = target_tab.colname_index.at(dest_col);
-	int col_offset = calculateColumnOffset_(tabname,key_col);
-	int dest_col_offset = calculateColumnOffset_(tabname,dest_col);
 	Column col = target_tab.schema.at(col_index);
-	Column destcol = target_tab.schema.at(dest_col_index);
 	fstream tabfile(tabname + ".dat", ios::in | ios::out | ios::binary);
 	if (col.indexed) {
 		// indexed way
-		vector<FilePos> foundpos =
-				findInBPTree_(target_tab.bptree[key_col],col,key);
-		for (FilePos record_pos : foundpos)
-			retval.push_back(getDBDataAtPos_(tabfile,destcol.type,
-						record_pos + dest_col_offset));
+		vector<FilePos> retpos = findInBPTree_(target_tab.bptree[key_col],col,key);
+		for (FilePos x : retpos)
+			retval.push_back(RecordHandle(tabname,x));
 		return retval;
 	} else {
-		// TODO full scan
+		// full scan
 		FilePos current_record = DatFile::kRecordStartPos;
+		tabfile.seekg(0,tabfile.end);
+		FilePos eofpos = tabfile.tellg();
 		if (col.unique) {
-			while (true) {
-				if (compareDBDataAtPos_(tabfile,current_record + col_offset,key)) {
-					getDBDataAtPos_(tabfile,destcol.type,
-									current_record + dest_col_offset);
-					break;
+			for (; current_record < eofpos;
+					 current_record += target_tab.data_length + 1) {
+				if (DatFile::isRecordDeleted(tabfile,current_record))
+					continue;
+				if (compareDBDataAtPos_(tabfile,current_record + col.offset,key)) {
+					RecordHandle record(tabname,current_record);
+					retval.push_back(record);
+					return retval;
 				}
 			}
 
 		} else {
-
+			for (; current_record < eofpos;
+					 current_record += target_tab.data_length + 1) {
+				if (DatFile::isRecordDeleted(tabfile,current_record))
+					continue;
+				if (compareDBDataAtPos_(tabfile,current_record + col.offset,key)) {
+					RecordHandle record(tabname,current_record);
+					retval.push_back(record);
+				}
+			}
+			return retval;
 		}
 	}
+}
+
+std::vector<RecordHandle> NaiveDB::rangeQuery(const string &tabname,
+				  const string &key_col, DBData first, DBData last) {
+	std::vector<DBData> retval;
+	Table target_tab = tables_.at(tabname);
+	int col_index = target_tab.colname_index.at(key_col);
+	Column col = target_tab.schema.at(col_index);
+	// TODO
 }

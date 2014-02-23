@@ -13,7 +13,7 @@ HEADERS += \
     bptree.hpp \
     kikutil.h \
     diskfile.h \
-    spstring.hpp
+    tweetclass.h
 
 
 unix: LIBS += -lncursesw

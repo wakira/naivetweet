@@ -20,6 +20,14 @@
  * File schema can be found in filescheme.txt
  */
 
+struct RecordHandle {
+	std::string tabname;
+	FilePos filepos;
+
+	RecordHandle(const std::string &table,FilePos offset) :
+		tabname(table), filepos(offset) {}
+};
+
 enum class DBType {
 	INT32, INT64, STRING, BOOLEAN, ERROR
 };
@@ -49,6 +57,7 @@ private:
 		bool unique;
 		DBType type;
 		size_t length;
+		size_t offset;
 	};
 	struct Table {
 		size_t data_length;
@@ -62,6 +71,8 @@ private:
 
 	// Helper functions
 
+	// check if dat file exists, if not, create an empty one
+	void checkDatFile_();
 	void* newBPTree_(const std::string &tabname,const Column &col);
 	void insertInBPTree_(void* bptree,const Column &col,DBData key,FilePos value);
 	std::vector<FilePos> findInBPTree_(void* bptree,const Column &col,DBData key);
@@ -70,7 +81,6 @@ private:
 	DBData getDBData_(std::fstream &stream,DBType type);
 	DBData getDBDataAtPos_(std::fstream &stream,DBType type,FilePos pos);
 	bool compareDBDataAtPos_(std::fstream &stream,FilePos pos,DBData comp);
-	int calculateColumnOffset_(const std::string &tabname,const std::string &colname);
 public:
 	// Public methods
 
@@ -79,12 +89,13 @@ public:
 	void del(const std::string &tabname, DBData primary_key);
 	void modify(const std::string &tabname, const std::string &colname,
 				DBData val);
-	std::vector<DBData> get(const std::string &tabname, const std::string &key_col,
-			   DBData key, const std::string &dest_col);
-	std::vector<DBData> rangeGet(const std::string &tabname,
-								 const std::string &key_col,
-								 DBData first, DBData last,
-								 const std::string &dest_col);
+	std::vector<RecordHandle> query(const std::string &tabname,
+							   const std::string &key_col,
+							   DBData key);
+	std::vector<RecordHandle> rangeQuery(const std::string &tabname,
+							   const std::string &key_col,
+							   DBData first, DBData last);
+	DBData get(RecordHandle handle, const std::string &dest_col);
 	// Constructor and destructor
 
 	NaiveDB(const std::string &dbname);
