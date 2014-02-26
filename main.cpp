@@ -1,28 +1,35 @@
 #include <algorithm>
 #include <string>
 #include <cstring>
+#include <cstdlib>
 #include <ctime>
 #include <clocale>
 #include <cctype>
 #include <ncurses.h>
 #include "naivedb.h"
-#include "tweetclass.h"
+#include "tweetop.h"
 
 using namespace std;
 
-const size_t kMaxLine = 80;
+static const size_t kMaxLine = 80;
 
 void welcome();
 void login();
 void registerAccount();
 void home();
-void homeCommand();
 void newTweet();
-void viewTweets();
-void tweetPageView(const vector<TweetLine> &alltweets);
 void changeProfile();
+void viewTweets();
+void findPeople();
+void viewPeople(RecordHandle handle);
+void listFriends();
+void tweetPageView(const vector<TweetLine> &alltweets);
+void userPageView(const vector<RecordHandle> &allusers_handle);
 
 /* Helper functions */
+void retweet(const TweetLine &tweet);
+void follow(int64_t id);
+void unfollow(int64_t id);
 void inputUntilCorrect(const char *prompt, char *input, bool(*test)(char*), const char *failprompt);
 bool validUsername(char *user);
 bool validPasswd(char *passwd);
@@ -32,25 +39,18 @@ bool validGender(char *raw);
 bool validIntro(char *line);
 bool validTweet(char *tweet);
 
-class tweetCmp {
-public:
-	bool operator()(const pair<int64_t,string> &v1, const pair<int64_t,string> &v2) const {
-		return v1.first >= v2.first;
-	}
-};
-
 /* Global variables */
 NaiveDB *db;
 int64_t uid;
 
 void debug() {
-	BPTree<long,long> bp("test.idx");
-	for (long i = 1; i <= 20; ++i)
-		bp.insert(47,i);
-	vector<long> found = bp.find(47);
-	for (long x : found)
-		printf("%d ",x);
-	printf("\n");
+	fstream file("test.txt", ios::out |ios::binary);
+	char byte = 0;
+	writeToPos(file,15,byte);
+	file.close();
+	file.open("test.txt", ios::in | ios::out | ios::binary);
+	file.seekg(0,file.end);
+	printf("%d\n",file.tellg());
 }
 
 int main()
@@ -64,11 +64,111 @@ int main()
 	welcome();
 
 	endwin();
+	delete db;
 	return 0;
 }
 
-void changeProfile() {
+void follow(int64_t id) {
+	DBData uid_d(DBType::INT64);
+	uid_d.int64 = uid;
+	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
+	bool deleted = false;
+	for (RecordHandle handle : query_res) {
+		if (db->get(handle,"b").int64 == id) {
+			deleted = true;
+			DBData tmp(DBType::BOOLEAN);
+			tmp.boolean = false;
+			db->modify(handle,"deleted",tmp);
+			break;
+		}
+	}
 
+	if (!deleted) {
+		vector<DBData> line;
+		DBData dbd(DBType::INT64);
+		dbd.int64 = uid;
+		line.push_back(dbd); // a
+		dbd.int64 = id;
+		line.push_back(dbd); // b
+		dbd.type = DBType::BOOLEAN;
+		dbd.boolean = false;
+		line.push_back(dbd); // deleted
+		db->insert("afob",line);
+	}
+}
+
+void unfollow(int64_t id) {
+	DBData uid_d(DBType::INT64);
+	uid_d.int64 = uid;
+	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
+	for (RecordHandle handle : query_res) {
+		if (db->get(handle,"b").int64 == id) {
+			DBData tmp(DBType::BOOLEAN);
+			tmp.boolean = true;
+			db->modify(handle,"deleted",tmp);
+			break;
+		}
+	}
+}
+
+void changeProfile() {
+	DBData uid_d(DBType::INT64);
+	uid_d.int64 = uid;
+	RecordHandle handle = db->query("userinfo","id",uid_d).at(0);
+	printw("What do you want to change?\n");
+	printw("[1] Full name\n");
+	printw("[2] Introduction\n");
+	printw("[3] Password\n");
+	printw("[x] to return home\n");
+GOTO_TAG_changeProfile:
+	noecho();
+	char select = getch();
+	echo();
+	switch (select) {
+	case '1': {
+		char name[kMaxLine];
+		inputUntilCorrect("New full name:",name,validName,"Invalid name!");
+		DBData name_d(DBType::STRING);
+		name_d.str = name;
+		db->modify(handle,"name",name_d);
+		printw("Profile updated!\n");
+		break;
+	}
+	case '2': {
+		char intro[kMaxLine];
+		inputUntilCorrect("  A short introduction (no more than 70 characters):",
+				intro, validIntro, "  Too long!");
+		DBData intro_d(DBType::STRING);
+		intro_d.str = intro;
+		db->modify(handle,"introduction",intro_d);
+		printw("Profile updated!\n");
+		break;
+	}
+	case '3': {
+		char passwd[kMaxLine], newpasswd[kMaxLine];
+		printw("Original password:");
+		noecho();
+		getstr(passwd);
+		string correct_passwd = db->get(handle,"passwd").str;
+		if (strcmp(correct_passwd.c_str(),passwd) != 0) {
+			printw("Password not correct!\n");
+		} else {
+			inputUntilCorrect("New password (at least 8 characters, 32 at most):", newpasswd,
+							  validPasswd, "Retry!");
+			DBData newpasswd_d(DBType::STRING);
+			newpasswd_d.str = newpasswd;
+			db->modify(handle,"passwd",newpasswd_d);
+			printw("Profile updated!\n");
+		}
+		break;
+	}
+	case 'x': case 'X': {
+		break;
+	}
+	default: {
+		goto GOTO_TAG_changeProfile;
+	}
+	}
 }
 
 void newTweet() {
@@ -94,8 +194,6 @@ void newTweet() {
 	dbline.push_back(dbd); // deleted
 
 	db->insert("tweets",dbline);
-
-	home();
 }
 
 void viewTweets() {
@@ -128,19 +226,325 @@ void viewTweets() {
 	sort(alltweets.begin(),alltweets.end());
 	// show these tweets
 	tweetPageView(alltweets);
+	clear();
+}
+
+void retweet(const TweetLine &tweet) {
+	int32_t unix_time = time(0);
+	vector<DBData> dbline;
+	DBData dbd(DBType::STRING);
+	dbd.str = tweet.content;
+	dbline.push_back(dbd); // content
+	dbd.type = DBType::INT64;
+	dbd.int64 = uid;
+	dbline.push_back(dbd); // publisher
+	dbd.int64 = tweet.author;
+	dbline.push_back(dbd); // author
+	dbd.type = DBType::INT32;
+	dbd.int32 = unix_time;
+	dbline.push_back(dbd); // time
+	dbd.type = DBType::BOOLEAN;
+	dbd.boolean = false;
+	dbline.push_back(dbd); // deleted
+
+	db->insert("tweets",dbline);
 }
 
 void tweetPageView(const vector<TweetLine> &alltweets) {
-	// TODO
-	for (TweetLine x : alltweets) {
-		printw("%d:%s\n",x.publisher,x.content.c_str());
+	static const int kTweetPerPage = 15;
+	int page = 1;
+	int max_page = (alltweets.size() - 1)/kTweetPerPage + 1;
+	bool noexit = true;
+	while (noexit) {
+		clear();
+		printw("Page : %d/%d\n",page,max_page);
+		// print tweet
+		for (int i = (page-1)*kTweetPerPage;
+			 i != std::min(alltweets.size(),(size_t)page*kTweetPerPage);
+			 ++i) {
+			TweetLine tweet = alltweets[i];
+			char timestr[kMaxLine];
+			time_t timet = tweet.time;
+			strftime(timestr,sizeof(timestr),"%F %T",localtime(&timet));
+			if (tweet.author == tweet.publisher) {
+				// query publisher name
+				DBData uid_d(DBType::INT64);
+				uid_d.int64 = tweet.publisher;
+				RecordHandle handle = db->query("userinfo","id",uid_d).at(0);
+				string usrstr = db->get(handle,"user").str;
+				printw("[%d] %s: %s (%s)\n",i,usrstr.c_str(),tweet.content.c_str(),timestr);
+			} else {
+				// query publisher name and author name
+				DBData uid_d(DBType::INT64), author_uid_d(DBType::INT64);
+				uid_d.int64 = tweet.publisher;
+				author_uid_d.int64 = tweet.author;
+				RecordHandle handle = db->query("userinfo","id",uid_d).at(0);
+				RecordHandle author_handle = db->query("userinfo","id",author_uid_d).at(0);
+				string usrstr = db->get(handle,"user").str;
+				string autstr = db->get(author_handle,"user").str;
+				printw("[%d] %s:RT @%s: %s (%s)\n",i,usrstr.c_str(),autstr.c_str(),tweet.content.c_str(),timestr);
+			}
+		}
+		// process key press
+		printw("\n[j] for next page, [k] for previous page\n");
+		printw("[r] to retweet, [x] to return home\n");
+		char keypress;
+		noecho();
+		while (keypress = getch()) {
+			if (keypress == 'j' || keypress == 'J') {
+				if (page < max_page) {
+					++page;
+					break;
+				}
+			}
+			if (keypress == 'k' || keypress == 'K') {
+				if (page > 1) {
+					--page;
+					break;
+				}
+			}
+			if (keypress == 'r' || keypress == 'R') {
+				printw("Which one to retweet? (input number in []):");
+				echo();
+				char input[kMaxLine];
+				getstr(input);
+				int choice = atoi(input);
+				if (choice >= 0 && choice < alltweets.size()) {
+					retweet(alltweets[choice]);
+					noexit = false;
+					break;
+				} else {
+					printw("Invalid choice!\n");
+				}
+				noecho();
+			}
+			if (keypress == 'x' || keypress == 'X') {
+				noexit = false;
+				break;
+			}
+		}
 	}
-	getch();
-	home();
 }
 
-void homeCommand() {
-GOTO_TAG_homeCommand:
+void viewPeople(RecordHandle handle) {
+	clear();
+	char name[kMaxLine],user[kMaxLine],gender[kMaxLine],birthday[kMaxLine],intro[kMaxLine];
+	strcpy(user,db->get(handle,"user").str.c_str());
+	strcpy(name,db->get(handle,"name").str.c_str());
+	strcpy(birthday,db->get(handle,"birthday").str.c_str());
+	strcpy(intro,db->get(handle,"introduction").str.c_str());
+	bool male_b = db->get(handle,"male").boolean;
+	if (male_b)
+		sprintf(gender,"Male");
+	else
+		sprintf(gender,"Female");
+	int64_t id = db->get(handle,"id").int64;
+
+	printw("Username: %s\n",user);
+	printw("Full name: %s\n",name);
+	printw("Gender: %s\n",gender);
+	printw("Birthday: %s\n",birthday);
+	printw("Introduction: %s\n",intro);
+
+	noecho();
+
+	if (id != uid) {
+		bool following = false;
+		DBData uid_d(DBType::INT64);
+		uid_d.int64 = uid;
+		vector<RecordHandle> query_res = db->query("afob","a",uid_d);
+		for (RecordHandle handle : query_res) {
+			if (id == db->get(handle,"b").int64 &&
+					db->get(handle,"deleted").boolean == false) {
+				following = true;
+				break;
+			}
+		}
+
+		if (following) {
+			printw("[u] to unfo [x] to return\n");
+			char keypress;
+			while (keypress = getch()) {
+				if (keypress == 'u' || keypress == 'U') {
+					unfollow(id);
+					break;
+				}
+				if (keypress == 'x' || keypress == 'X')
+					break;
+			}
+		} else {
+			printw("[f] to follow [x] to return\n");
+			char keypress;
+			while (keypress = getch()) {
+				if (keypress == 'f' || keypress == 'F') {
+					follow(id);
+					break;
+				}
+				if (keypress == 'x' || keypress == 'X')
+					break;
+			}
+		}
+	} else {
+		printw("How could you forget your own profile? Press any key to return\n");
+		getch();
+	}
+	clear();
+}
+
+void userPageView(const vector<RecordHandle> &allusers_handle) {
+	static const int kUserPerPage = 15;
+	int page = 1;
+	int max_page = (allusers_handle.size() - 1)/kUserPerPage + 1;
+	bool noexit = true;
+	while (noexit) {
+		clear();
+		printw("Page : %d/%d\n",page,max_page);
+		// print user
+		for (int i = (page-1)*kUserPerPage;
+			 i != std::min(allusers_handle.size(),(size_t)page*kUserPerPage);
+			 ++i) {
+			RecordHandle handle = allusers_handle[i];
+			printw("[%d] %s\n",i,db->get(handle,"user").str.c_str());
+		}
+		// process key press
+		printw("\n[j] for next page, [k] for previous page\n");
+		printw("[d] for detail, [x] to return\n");
+		char keypress;
+		noecho();
+		while (keypress = getch()) {
+			if (keypress == 'j' || keypress == 'J') {
+				if (page < max_page) {
+					++page;
+					break;
+				}
+			}
+			if (keypress == 'k' || keypress == 'K') {
+				if (page > 1) {
+					--page;
+					break;
+				}
+			}
+			if (keypress == 'd' || keypress == 'D') {
+				printw("Which user to see? (input number in []):");
+				echo();
+				char input[kMaxLine];
+				getstr(input);
+				int choice = atoi(input);
+				if (choice >= 0 && choice < allusers_handle.size()) {
+					viewPeople(allusers_handle[choice]);
+					break;
+				} else {
+					printw("Invalid choice!\n");
+				}
+				noecho();
+			}
+			if (keypress == 'x' || keypress == 'X') {
+				noexit = false;
+				break;
+			}
+		}
+	}
+}
+
+void findPeople() {
+	printw("[1] by username\n");
+	printw("[2] by birthday and gender\n");
+	printw("[3] by full name\n");
+	noecho();
+	char keypress;
+	keypress = getch();
+	switch (keypress) {
+	case '1': {
+		printw("Input user name:");
+		char user[kMaxLine];
+		echo();
+		getstr(user);
+		DBData query_d(DBType::STRING);
+		query_d.str = user;
+		vector<RecordHandle> query_res = db->query("userinfo","user",query_d);
+		if (query_res.empty()) {
+			printw("Not found!\n");
+			return;
+		}
+		viewPeople(query_res[0]);
+		break;
+	}
+	case '2': {
+		char birthday_f[kMaxLine], birthday_l[kMaxLine];
+		char gender[kMaxLine];
+		echo();
+		inputUntilCorrect("Birthday from:",birthday_f,validBirthday,"Invalid format!");
+		inputUntilCorrect("to:",birthday_l,validBirthday,"Invalid format!");
+		inputUntilCorrect("Gender (M/F):",gender,validGender,"Invalid input!");
+		DBData birthday_f_d(DBType::STRING), birthday_l_d(DBType::STRING);
+		birthday_f_d.str = birthday_f;
+		birthday_l_d.str = birthday_l;
+		bool male_b;
+		if (strcmp(gender,"M") == 0)
+			male_b = true;
+		else
+			male_b = false;
+		vector<RecordHandle> query_res = db->rangeQuery("userinfo","birthday",
+														birthday_f_d,birthday_l_d);
+		vector<RecordHandle> allusers_handle;
+		for (RecordHandle handle : query_res) {
+			if (db->get(handle,"deleted").boolean == false &&
+					db->get(handle,"male").boolean == male_b) {
+				// user that meet the requirement
+				allusers_handle.push_back(handle);
+			}
+		}
+		userPageView(allusers_handle);
+		break;
+	}
+	case '3': {
+		printw("Input full name:");
+		char name[kMaxLine];
+		echo();
+		getstr(name);
+		DBData query_d(DBType::STRING);
+		query_d.str = name;
+		vector<RecordHandle> query_res = db->query("userinfo","name",query_d);
+		if (query_res.empty()) {
+			printw("Not found!\n");
+			return;
+		}
+		viewPeople(query_res[0]);
+		break;
+	}
+	}
+}
+
+void listFriends() {
+	DBData uid_d(DBType::INT64);
+	uid_d.int64 = uid;
+	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
+	vector<int64_t> following_uid;
+	vector<string> following_user;
+	for (RecordHandle x : query_res) {
+		bool deleted = db->get(x,"deleted").boolean;
+		if (!deleted) {
+			DBData x_uid_d = db->get(x,"b");
+			int64_t x_uid = x_uid_d.int64;
+			following_uid.push_back(x_uid);
+			RecordHandle userinfo_query = db->query("userinfo","id",x_uid_d).at(0);
+			following_user.push_back(db->get(userinfo_query,"user").str);
+		}
+	}
+	printw("People you are following:\n");
+	for (size_t i = 0; i != following_uid.size(); ++i)
+		printw("[%d] %s\n",following_uid[i],following_user[i].c_str());
+	// TODO
+}
+
+void home() {
+GOTO_TAG_home:
+	printw("[t] to tweet\n");
+	printw("[v] to view tweets\n");
+	printw("[f] to find people\n");
+	printw("[l] to list friends\n");
+	printw("[r] to change profile\n");
+	printw("[x] to exit\n");
 	noecho();
 	char key = getch();
 	switch (key) {
@@ -151,33 +555,24 @@ GOTO_TAG_homeCommand:
 		viewTweets();
 		break;
 	case 'f': case 'F':
-
+		findPeople();
 		break;
 	case 'l': case 'L':
+		listFriends();
 		break;
 	case 'r': case 'R':
 		changeProfile();
 		break;
 	case 'x': case 'X':
-		break;
+		return;
 	default:
-		goto GOTO_TAG_homeCommand;
+		clear();
 	}
-}
-
-void home() {
-	clear();
-	printw("[t] to tweet\n");
-	printw("[v] to view tweets\n");
-	printw("[f] to follow somebody\n");
-	printw("[l] to list friends\n");
-	printw("[r] to change profile");
-	printw("[x] to exit\n");
-	homeCommand();
+	goto GOTO_TAG_home;
 }
 
 void welcome() {
-	printw("Welcome to naivetweet, press 'l' to login, 'r' to register, 'q' to quit\n");
+	printw("Welcome to naivetweet, press 'l' to login, 'r' to register, 'x' to quit\n");
 	refresh();
 	noecho();
 	while (true) {
@@ -191,7 +586,7 @@ void welcome() {
 			registerAccount();
 			return;
 		}
-		if (c == 'q' || c == 'Q') {
+		if (c == 'x' || c == 'X') {
 			return;
 		}
 	}
@@ -219,7 +614,7 @@ void registerAccount() {
 	inputUntilCorrect("  Your full name please:",
 			name, validName, "  Retry");
 
-	inputUntilCorrect("  Gender(M/F):", 
+	inputUntilCorrect("  Gender(M/F):",
 			gender, validGender, "  A single character M or F please.");
 
 	inputUntilCorrect("  A short introduction (no more than 70 characters):",
@@ -257,6 +652,7 @@ void login() {
 		printw("Password:");
 		noecho();
 		getstr(passwd);
+
 		DBData user_d(DBType::STRING);
 		user_d.str = user;
 		query_res = db->query("userinfo","user",user_d);
@@ -272,6 +668,7 @@ void login() {
 	}
 	DBData uid_d = db->get(query_res[0],"id");
 	uid = uid_d.int64;
+	clear();
 	home();
 }
 

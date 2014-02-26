@@ -20,6 +20,29 @@ void getFromPos(std::istream &ifs, FilePos pos, T &data) {
 	binary_read(ifs, data);
 }
 
+// Special string read function
+inline void binary_read_s(std::istream &ifs, std::string &str, size_t length) {
+	str.clear();
+	size_t count = 0;
+	char byte;
+	while ((byte = ifs.get()) != '\0') {
+		str.push_back(byte);
+		++count;
+	}
+	++count;
+	for (; count < length; ++count)
+		ifs.get();
+}
+
+// Special string write function
+inline void binary_write_s(std::ostream &ofs, const std::string &str, size_t length) {
+	size_t count;
+	for (count = 0; count != str.length(); ++count)
+		ofs.put(str[count]);
+	for (; count < length; ++count)
+		ofs.put('\0');
+}
+
 bool fileExists(const char* filename);
 
 namespace DatFile {

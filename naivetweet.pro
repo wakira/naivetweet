@@ -6,14 +6,15 @@ CONFIG -= qt
 
 SOURCES += main.cpp \
     naivedb.cpp \
-    diskfile.cpp
+    diskfile.cpp \
+    tweetop.cpp
 
 HEADERS += \
     naivedb.h \
     bptree.hpp \
     kikutil.h \
     diskfile.h \
-    tweetclass.h
+    tweetop.h
 
 
 unix: LIBS += -lncursesw

@@ -15,34 +15,7 @@
 #include "diskfile.h"
 #include "kikutil.h"
 
-#ifndef NDEBUG
-#include <iostream>
-#endif
-
 const size_t kBlockSize = 4096;
-
-// Special string read function
-inline void binary_read_s(std::istream &ifs, std::string &str, size_t length) {
-	str.clear();
-	size_t count = 0;
-	char byte;
-	while ((byte = ifs.get()) != '\0') {
-		str.push_back(byte);
-		++count;
-	}
-	++count;
-	for (; count < length; ++count)
-		ifs.get();
-}
-
-// Special string write function
-inline void binary_write_s(std::ostream &ofs, const std::string &str, size_t length) {
-	size_t count;
-	for (count = 0; count != str.length(); ++count)
-		ofs.put(str[count]);
-	for (; count < length; ++count)
-		ofs.put('\0');
-}
 
 // The BPTree class
 // Stores on disk file
@@ -132,6 +105,8 @@ public:
 	bool erase(const KeyType &key);
 
 	bool modify(const KeyType &key, const ValType &new_value);
+
+	std::vector<ValType> rangeFind(const KeyType &first,const KeyType &last);
 };
 
 // Implementations of class BPTree
@@ -181,17 +156,6 @@ BPTree<KeyType,ValType>::
 	// load meta
 	std::fstream file(filename.c_str(), std::ios::in | std::ios::out |
 					  std::ios::binary);
-	// DEBUG ASSERT
-	{
-		int32_t keysize, valsize, blocksize;
-		getFromPos(file,8,keysize);
-		getFromPos(file,12,valsize);
-		getFromPos(file,16,blocksize);
-		assert(keysize == sizeof(KeyType));
-		assert(valsize == sizeof(ValType));
-		assert(blocksize == kBlockSize);
-	}
-
 	load_root_node_(file);
 	file.close();
 }
@@ -303,7 +267,7 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 	// Find in that node
 	// Search in inner node, find correct children and continue the recursion
 	size_t data_index = find_lower_(leaf_node, key);
-	if (leaf_node->overflowptr[data_index]) {
+	if (leaf_node->overflowptr[data_index] && leaf_node->keys[data_index] == key) {
 		// process duplicate key
 		Leaf *overflow = dynamic_cast<Leaf*>(
 					load_node_(stream,leaf_node->data[data_index]));
@@ -345,9 +309,6 @@ size_t BPTree<KeyType,ValType>::
 template <typename KeyType, typename ValType>
 void BPTree<KeyType,ValType>::
 		insert(const KeyType &key, const ValType &value) {
-#ifndef NDEBUG
-	std::cout << "insert:" << key << std::endl;
-#endif
 
 	std::fstream stream(filename_.c_str(),std::ios::in | std::ios::out |
 						std::ios::binary);
@@ -507,6 +468,46 @@ bool BPTree<KeyType,ValType>::
 	}
 }
 
+// Specialization for string and filepos
+template <>
+inline void BPTree<std::string,FilePos>::
+		write_node_(std::fstream &stream, FilePos nodepos, Node *p) {
+
+	char byte = p->nodetype;
+	writeToPos(stream,nodepos,byte);
+	binary_write(stream,p->slotuse);
+	switch (p->nodetype) {
+	case IdxFile::INNER:
+	case IdxFile::SINGLE: {
+		InnerNode* inner = dynamic_cast<InnerNode*>(p);
+		for (size_t i = 0; i != BPOrder - 1; ++i)
+			binary_write_s(stream,inner->keys[i],keysize_);
+		for (size_t i = 0; i != BPOrder; ++i)
+			binary_write(stream,inner->children[i]);
+		// padding
+		byte = 0;
+		for (size_t i = 0; i != InnerNodePadding; ++i)
+			binary_write(stream,byte);
+		break;
+	}
+	default: {
+		Leaf* leaf = dynamic_cast<Leaf*>(p);
+		for (size_t i = 0; i != BPOrder - 1; ++i)
+			binary_write_s(stream,leaf->keys[i],keysize_);
+		for (size_t i = 0; i != BPOrder - 1; ++i)
+			binary_write(stream, leaf->data[i]);
+		binary_write(stream,leaf->next_leaf);
+		for (size_t i = 0; i != BPOrder - 1; ++i)
+			binary_write(stream, leaf->overflowptr[i]);
+		// padding
+		byte = 0;
+		for (size_t i = 0; i != LeafPadding; ++i)
+			binary_write(stream,byte);
+		break;
+	}
+	}
+}
+
 template <typename KeyType, typename ValType>
 void BPTree<KeyType,ValType>::
 		write_node_(std::fstream &stream, FilePos nodepos, Node *p) {
@@ -549,9 +550,6 @@ void BPTree<KeyType,ValType>::
 template <typename KeyType, typename ValType>
 void BPTree<KeyType,ValType>::
 		insert_in_parent_(std::fstream &stream, std::stack<FilePos> parentpos, KeyType newkey, FilePos newnode_pos) {
-#ifndef NDEBUG
-	std::cout << "insert_in_parent_" << std::endl;
-#endif
 
 	FilePos nodepos = parentpos.top();
 	InnerNode *p;
@@ -627,9 +625,6 @@ void BPTree<KeyType,ValType>::
 template <typename KeyType, typename ValType>
 void BPTree<KeyType,ValType>::
 		create_new_root_(std::fstream &stream, KeyType newkey, FilePos lptr, FilePos rptr) {
-#ifndef NDEBUG
-	std::cout << "create_new_root_" << std::endl;
-#endif
 
 	InnerNode *newroot = new InnerNode(this);
 	newroot->slotuse = 1;
@@ -665,6 +660,74 @@ void BPTree<KeyType,ValType>::
 	root->slotuse = 0;
 	write_node_(stream,4096,root);
 	delete root;
+}
+
+template <typename KeyType, typename ValType>
+std::vector<ValType> BPTree<KeyType,ValType>::
+		rangeFind(const KeyType &first, const KeyType &last) {
+
+	std::vector<ValType> retval;
+	std::fstream stream(filename_,std::ios::in | std::ios::out |
+						std::ios::binary);
+	Node *p = root_;
+	// Locate leaf or overflow node
+	while (p->nodetype == IdxFile::INNER) {
+		InnerNode *inner_node = dynamic_cast<InnerNode*>(p);
+		size_t next_child_index = find_lower_(inner_node, first);
+		Node* newnode = load_node_(stream,inner_node->children[next_child_index]);
+		if (p != root_)
+			delete p;
+		p = newnode;
+	}
+	Leaf *leaf_node = dynamic_cast<Leaf*>(p);
+	KeyType key = first;
+
+	// Find in that node
+	// Search in inner node, find correct children and continue the recursion
+	size_t data_index = find_lower_(leaf_node, key);
+	key = leaf_node->keys[data_index];
+	while (key <= last) {
+		if (leaf_node->overflowptr[data_index] && leaf_node->keys[data_index] == key) {
+			// process duplicate key
+			Leaf *overflow = dynamic_cast<Leaf*>(
+						load_node_(stream,leaf_node->data[data_index]));
+			while (true) {
+				for (size_t i = 0; i != overflow->slotuse; ++i)
+					retval.push_back(overflow->data[i]);
+				if (overflow->next_leaf == 0)
+					break;
+				else {
+					Leaf *next_overflow = dynamic_cast<Leaf*>(
+								load_node_(stream,overflow->next_leaf));
+					delete overflow;
+					overflow = next_overflow;
+				}
+			}
+			delete overflow;
+		} else if (leaf_node->keys[data_index] == key) {
+			// normal situation, determine if key is found and then add the key
+			retval.push_back(leaf_node->data[data_index]);
+		}
+
+		// change leaf_node ptr and data_index
+		if (data_index + 1 >= leaf_node->slotuse && leaf_node->next_leaf != 0) {
+			Leaf *next_leaf = dynamic_cast<Leaf*>(
+						load_node_(stream,leaf_node->next_leaf));
+			delete leaf_node;
+			leaf_node = next_leaf;
+			p = next_leaf;
+			data_index = 0;
+			key = leaf_node->keys[data_index];
+		} else if (data_index + 1 >= leaf_node->slotuse && leaf_node->next_leaf == 0) {
+			break;
+		} else {
+			++data_index;
+			key = leaf_node->keys[data_index];
+		}
+	}
+	if (p != root_)
+		delete p;
+	return retval;
 }
 
 #endif // BPTREE_HPP

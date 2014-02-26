@@ -1,8 +1,9 @@
-#ifndef TWEETCLASS_H
-#define TWEETCLASS_H
+#ifndef TWEETOP_H
+#define TWEETOP_H
 
 #include <string>
 #include <vector>
+#include "naivedb.h"
 
 class TweetLine {
 public:
@@ -23,4 +24,14 @@ inline bool operator<(const TweetLine &lval,const TweetLine &rval) {
 	return lval.time >= rval.time;
 }
 
-#endif // TWEETCLASS_H
+class UserLine {
+public:
+	int64_t uid;
+	std::string username;
+	std::string birthday;
+	std::string name;
+	bool male;
+	std::string intro;
+};
+
+#endif // TWEETOP_H

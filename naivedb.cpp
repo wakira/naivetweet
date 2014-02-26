@@ -108,7 +108,7 @@ void NaiveDB::insertInBPTree_(void* bptree,const Column &col,DBData key, FilePos
 	}
 	case DBType::INT64: {
 		BPTree<int64_t,FilePos> *tree = static_cast<BPTree<int64_t,FilePos>*>(bptree);
-		tree->insert(key.int32,value);
+		tree->insert(key.int64,value);
 		return;
 	}
 	case DBType::STRING: {
@@ -210,12 +210,12 @@ void NaiveDB::loadMeta_(const string &dbname) {
 				assert(0);
 			}
 			// <index>
-			if (col.get<string>("index") == "true")
+			if (col.get<string>("index") == "yes")
 				newcol.indexed = true;
 			else
 				newcol.indexed = false;
 			// <unique>
-			if (col.get<string>("unique") == "true")
+			if (col.get<string>("unique") == "yes")
 				newcol.unique = true;
 			else
 				newcol.unique = false;
@@ -233,9 +233,9 @@ void NaiveDB::loadMeta_(const string &dbname) {
 }
 
 void NaiveDB::loadIndex_() {
-	for (auto iter : tables_) {
+	for (auto &iter : tables_) {
 		string tabname = iter.first;
-		for (Column col : iter.second.schema)
+		for (Column &col : iter.second.schema)
 			if (col.indexed)
 				iter.second.bptree[col.name] = newBPTree_(tabname,col);
 	}
@@ -243,59 +243,54 @@ void NaiveDB::loadIndex_() {
 
 NaiveDB::NaiveDB(const string &dbname) {
 	loadMeta_(dbname);
-	checkDatFile_();
+	prepareDatFile_();
 	loadIndex_();
 }
 
-void NaiveDB::checkDatFile_() {
-	for (auto pair : tables_) {
+void NaiveDB::prepareDatFile_() {
+	for (auto &pair : tables_) {
 		string filename = pair.first + ".dat";
-		Table tab = pair.second;
+		Table &tab = pair.second;
 		if (!fileExists(filename.c_str())) {
 			// create an empty dat file
-			fstream datfile(filename.c_str(), ios::out | ios::binary);
-			datfile.seekp(DatFile::kRecordStartPos - 2);
+			tab.fileptr = new fstream(filename, ios::out | ios::binary);
 			char byte = 0;
-			datfile.put(byte);
-			datfile.close();
-		}
+			writeToPos(*tab.fileptr,DatFile::kRecordStartPos - 2,byte);
+			tab.fileptr->close();
+			tab.fileptr->open(filename, ios::in | ios::out | ios::binary);
+		} else
+			tab.fileptr = new fstream(filename, ios::in | ios::out | ios::binary);
 	}
 }
 
 void NaiveDB::insert(const string &tabname, std::vector<DBData> line) {
-	Table target_tab = tables_.at(tabname);
-	fstream tabfile(tabname + ".dat", ios::in | ios::out | ios::binary);
-	int64_t new_pid = DatFile::increasePrimaryId(tabfile);
+	Table &target_tab = tables_.at(tabname);
+	int64_t new_pid = DatFile::increasePrimaryId(*target_tab.fileptr);
 	// find a free chunk and modify meta information
-	FilePos record_pos = DatFile::consumeFreeSpace(tabfile);
+	FilePos record_pos = DatFile::consumeFreeSpace(*target_tab.fileptr);
 	// write primary id
-	binary_write(tabfile, new_pid);
+	binary_write(*target_tab.fileptr, new_pid);
+	// create index for id
+	DBData id_d(DBType::INT64);
+	id_d.int64 = new_pid;
+	insertInBPTree_(target_tab.bptree["id"],
+			target_tab.schema[0],id_d,record_pos);
 	// write each column
 	// i starts from 1 because pid has already been written
 	for (size_t i = 1; i != target_tab.schema.size(); ++i) {
 		switch (target_tab.schema[i].type) {
 		case DBType::BOOLEAN:
-			binary_write(tabfile, line[i-1].boolean);
+			binary_write(*target_tab.fileptr, line[i-1].boolean);
 			break;
 		case DBType::INT32:
-			binary_write(tabfile, line[i-1].int32);
+			binary_write(*target_tab.fileptr, line[i-1].int32);
 			break;
 		case DBType::INT64:
-			binary_write(tabfile, line[i-1].int64);
+			binary_write(*target_tab.fileptr, line[i-1].int64);
 			break;
-		case DBType::STRING: {
-			size_t j = 0;
-			// j <= str.length() means that '\0' is also writen
-			for (; j != line[i-1].str.length(); ++j)
-				binary_write(tabfile,line[i-1].str[j]);
-			char byte = '\0';
-			binary_write(tabfile,byte);
-			++j;
-			// space holder when provided string is shorter
-			for (; j != target_tab.schema[i].length; ++j)
-				binary_write(tabfile,byte);
+		case DBType::STRING:
+			binary_write_s(*target_tab.fileptr,line[i-1].str,target_tab.schema[i].length);
 			break;
-		}
 		default:
 			// DBType::ERROR falls in
 			assert(0);
@@ -309,27 +304,19 @@ void NaiveDB::insert(const string &tabname, std::vector<DBData> line) {
 	}
 }
 
-void NaiveDB::del(const string &tabname, DBData primary_key) {
-	Table target_tab = tables_.at(tabname);
-	fstream tabfile(tabname + ".dat", ios::in | ios::out | ios::binary);
-	// TODO locate record by index
-}
-
 DBData NaiveDB::get(RecordHandle handle, const string &dest_col) {
-	Table target_tab = tables_.at(handle.tabname);
+	Table &target_tab = tables_.at(handle.tabname);
 	int dest_col_index = target_tab.colname_index.at(dest_col);
 	Column destcol = target_tab.schema.at(dest_col_index);
-	fstream tabfile(handle.tabname + ".dat", ios::in | ios::binary);
-	return getDBDataAtPos_(tabfile,destcol.type,handle.filepos + destcol.offset);
+	return getDBDataAtPos_(*target_tab.fileptr,destcol.type,handle.filepos + destcol.offset);
 }
 
 std::vector<RecordHandle> NaiveDB::query(const string &tabname,
 					const string &key_col, DBData key) {
 	std::vector<RecordHandle> retval;
-	Table target_tab = tables_.at(tabname);
+	Table &target_tab = tables_.at(tabname);
 	int col_index = target_tab.colname_index.at(key_col);
 	Column col = target_tab.schema.at(col_index);
-	fstream tabfile(tabname + ".dat", ios::in | ios::out | ios::binary);
 	if (col.indexed) {
 		// indexed way
 		vector<FilePos> retpos = findInBPTree_(target_tab.bptree[key_col],col,key);
@@ -339,26 +326,26 @@ std::vector<RecordHandle> NaiveDB::query(const string &tabname,
 	} else {
 		// full scan
 		FilePos current_record = DatFile::kRecordStartPos;
-		tabfile.seekg(0,tabfile.end);
-		FilePos eofpos = tabfile.tellg();
+		target_tab.fileptr->seekg(0,target_tab.fileptr->end);
+		FilePos eofpos = target_tab.fileptr->tellg();
 		if (col.unique) {
 			for (; current_record < eofpos;
 					 current_record += target_tab.data_length + 1) {
-				if (DatFile::isRecordDeleted(tabfile,current_record))
+				if (DatFile::isRecordDeleted(*target_tab.fileptr,current_record))
 					continue;
-				if (compareDBDataAtPos_(tabfile,current_record + col.offset,key)) {
+				if (compareDBDataAtPos_(*target_tab.fileptr,current_record + col.offset,key)) {
 					RecordHandle record(tabname,current_record);
 					retval.push_back(record);
 					return retval;
 				}
 			}
-
+			return retval;
 		} else {
 			for (; current_record < eofpos;
 					 current_record += target_tab.data_length + 1) {
-				if (DatFile::isRecordDeleted(tabfile,current_record))
+				if (DatFile::isRecordDeleted(*target_tab.fileptr,current_record))
 					continue;
-				if (compareDBDataAtPos_(tabfile,current_record + col.offset,key)) {
+				if (compareDBDataAtPos_(*target_tab.fileptr,current_record + col.offset,key)) {
 					RecordHandle record(tabname,current_record);
 					retval.push_back(record);
 				}
@@ -371,8 +358,51 @@ std::vector<RecordHandle> NaiveDB::query(const string &tabname,
 std::vector<RecordHandle> NaiveDB::rangeQuery(const string &tabname,
 				  const string &key_col, DBData first, DBData last) {
 	std::vector<DBData> retval;
-	Table target_tab = tables_.at(tabname);
+	Table &target_tab = tables_.at(tabname);
 	int col_index = target_tab.colname_index.at(key_col);
 	Column col = target_tab.schema.at(col_index);
-	// TODO
+	if (col.indexed) {
+		// TODO need to write helper function rangeFindInBPTree_
+
+	} else
+		assert(0); // no trolling
+}
+
+void NaiveDB::modify(RecordHandle handle, const string &colname, DBData val) {
+	Table &target_tab = tables_.at(handle.tabname);
+	int col_index = target_tab.colname_index.at(colname);
+	Column col = target_tab.schema.at(col_index);
+	target_tab.fileptr->seekp(handle.filepos + col.offset);
+	assert(val.type == col.type);
+	switch (val.type) {
+	case DBType::BOOLEAN:
+		binary_write(*target_tab.fileptr, val.boolean);
+		break;
+	case DBType::INT32:
+		binary_write(*target_tab.fileptr, val.int32);
+		break;
+	case DBType::INT64:
+		binary_write(*target_tab.fileptr, val.int64);
+		break;
+	case DBType::STRING:
+		binary_write_s(*target_tab.fileptr, val.str, col.length);
+		break;
+	default:
+		assert(0);
+	}
+
+	if (col.indexed)
+		assert(0); // muhahahaha
+}
+
+NaiveDB::~NaiveDB() {
+	for (pair<std::string,Table> x : tables_) {
+		x.second.fileptr->close();
+		delete x.second.fileptr;
+		/*
+		for (Column col : iter.second.schema)
+			if (col.indexed)
+				deleteBPTree_(iter.second.bptree[col.name],col);
+				*/
+	}
 }

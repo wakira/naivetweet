@@ -61,6 +61,7 @@ private:
 	};
 	struct Table {
 		size_t data_length;
+		std::fstream *fileptr;
 		std::vector<Column> schema;
 		std::unordered_map<std::string,int> colname_index;
 		std::unordered_map<std::string, void*> bptree;
@@ -72,9 +73,10 @@ private:
 	// Helper functions
 
 	// check if dat file exists, if not, create an empty one
-	void checkDatFile_();
+	void prepareDatFile_();
 	void* newBPTree_(const std::string &tabname,const Column &col);
 	void insertInBPTree_(void* bptree,const Column &col,DBData key,FilePos value);
+	void deleteBPTree_(void* bptree,const Column &col);
 	std::vector<FilePos> findInBPTree_(void* bptree,const Column &col,DBData key);
 	void loadMeta_(const std::string &dbname);
 	void loadIndex_();
@@ -86,8 +88,7 @@ public:
 
 	void debug(); // run debug commands
 	void insert(const std::string &tabname, std::vector<DBData> line);
-	void del(const std::string &tabname, DBData primary_key);
-	void modify(const std::string &tabname, const std::string &colname,
+	void modify(RecordHandle handle, const std::string &colname,
 				DBData val);
 	std::vector<RecordHandle> query(const std::string &tabname,
 							   const std::string &key_col,
