@@ -6,6 +6,7 @@
 #ifndef BPTREE_HPP
 #define BPTREE_HPP
 
+#include <algorithm>
 #include <stack>
 #include <vector>
 #include <fstream>
@@ -15,6 +16,7 @@
 #include "diskfile.h"
 #include "kikutil.h"
 
+// NOTE if your change kBlockSize, change kMaxBPOrder correspondently
 const size_t kBlockSize = 4096;
 
 // The BPTree class
@@ -25,7 +27,7 @@ class BPTree {
 public:
 	// Order-related configuration
 
-	static const size_t kMaxBPOrder = 320; // FIXME should be calculated from kBlockSize
+	static const size_t kMaxBPOrder = 320;
 	size_t BPOrder;
 	size_t InnerNodePadding;
 	size_t LeafPadding;
@@ -297,13 +299,15 @@ template <typename NodeWithKeys>
 size_t BPTree<KeyType,ValType>::
 		find_lower_(NodeWithKeys *p, const KeyType &key) const {
 
-	// Linear search inside a node to find the place that is just smaller than or equal to key
-	// TODO If kOrder is too large, use binary search instead
-	size_t i;
-	for (i = 0; i != p->slotuse; ++i)
-		if (p->keys[i] >= key)
-			break;
-	return i;
+	// Linear search version
+	//size_t i;
+	//for (i = 0; i != p->slotuse; ++i)
+	//	if (p->keys[i] >= key)
+	//		break;
+	//return i;
+
+	// Binary search inside a node to find the place that is just smaller than or equal to key
+	return std::lower_bound(p->keys,p->keys + p->slotuse,key) - p->keys;
 }
 
 template <typename KeyType, typename ValType>
@@ -333,6 +337,9 @@ void BPTree<KeyType,ValType>::
 
 	if (insert_in_leaf_(stream,old_leaf,key,value)) {
 		write_node_(stream,nodepos,old_leaf);
+		if (p != root_) {
+			delete p;
+		}
 		return;
 	} else {
 		// split current node
