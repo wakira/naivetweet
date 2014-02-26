@@ -112,6 +112,7 @@ void unfollow(int64_t id) {
 }
 
 void changeProfile() {
+	clear();
 	DBData uid_d(DBType::INT64);
 	uid_d.int64 = uid;
 	RecordHandle handle = db->query("userinfo","id",uid_d).at(0);
@@ -197,6 +198,7 @@ void newTweet() {
 }
 
 void viewTweets() {
+	clear();
 	vector<TweetLine> alltweets;
 	DBData uid_d(DBType::INT64);
 	uid_d.int64 = uid;
@@ -254,13 +256,15 @@ void tweetPageView(const vector<TweetLine> &alltweets) {
 	static const int kTweetPerPage = 15;
 	int page = 1;
 	int max_page = (alltweets.size() - 1)/kTweetPerPage + 1;
+	if (alltweets.empty())
+		max_page = 1;
 	bool noexit = true;
 	while (noexit) {
 		clear();
 		printw("Page : %d/%d\n",page,max_page);
 		// print tweet
 		for (int i = (page-1)*kTweetPerPage;
-			 i != std::min(alltweets.size(),(size_t)page*kTweetPerPage);
+			 i < std::min(alltweets.size(),(size_t)page*kTweetPerPage);
 			 ++i) {
 			TweetLine tweet = alltweets[i];
 			char timestr[kMaxLine];
@@ -447,6 +451,7 @@ void userPageView(const vector<RecordHandle> &allusers_handle) {
 }
 
 void findPeople() {
+	clear();
 	printw("[1] by username\n");
 	printw("[2] by birthday and gender\n");
 	printw("[3] by full name\n");
@@ -516,11 +521,13 @@ void findPeople() {
 }
 
 void listFriends() {
+	clear();
 	DBData uid_d(DBType::INT64);
 	uid_d.int64 = uid;
 	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
 	vector<int64_t> following_uid;
 	vector<string> following_user;
+	vector<RecordHandle> user_handles;
 	for (RecordHandle x : query_res) {
 		bool deleted = db->get(x,"deleted").boolean;
 		if (!deleted) {
@@ -528,13 +535,35 @@ void listFriends() {
 			int64_t x_uid = x_uid_d.int64;
 			following_uid.push_back(x_uid);
 			RecordHandle userinfo_query = db->query("userinfo","id",x_uid_d).at(0);
+			user_handles.push_back(userinfo_query);
 			following_user.push_back(db->get(userinfo_query,"user").str);
 		}
 	}
 	printw("People you are following:\n");
 	for (size_t i = 0; i != following_uid.size(); ++i)
-		printw("[%d] %s\n",following_uid[i],following_user[i].c_str());
-	// TODO
+		printw("[%d] %s\n",i,following_user[i].c_str());
+	printw("[d] for detail, [x] to return\n");
+	char keypress;
+	noecho();
+	while (keypress = getch()) {
+		if (keypress == 'd' || keypress == 'D') {
+			printw("Which user to see? (input number in []):");
+			echo();
+			char input[kMaxLine];
+			getstr(input);
+			int choice = atoi(input);
+			if (choice >= 0 && choice < following_uid.size()) {
+				viewPeople(user_handles[choice]);
+				break;
+			} else {
+				printw("Invalid choice!\n");
+			}
+			noecho();
+		}
+		if (keypress == 'x' || keypress == 'X') {
+			break;
+		}
+	}
 }
 
 void home() {

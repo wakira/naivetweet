@@ -74,15 +74,24 @@ private:
 
 	// check if dat file exists, if not, create an empty one
 	void prepareDatFile_();
-	void* newBPTree_(const std::string &tabname,const Column &col);
-	void insertInBPTree_(void* bptree,const Column &col,DBData key,FilePos value);
-	void deleteBPTree_(void* bptree,const Column &col);
-	std::vector<FilePos> findInBPTree_(void* bptree,const Column &col,DBData key);
+
 	void loadMeta_(const std::string &dbname);
 	void loadIndex_();
 	DBData getDBData_(std::fstream &stream,DBType type);
 	DBData getDBDataAtPos_(std::fstream &stream,DBType type,FilePos pos);
 	bool compareDBDataAtPos_(std::fstream &stream,FilePos pos,DBData comp);
+
+	// The Following Functions are for Simple Reflection Mechanism
+	// create an BPTree of correspondnet type
+	void* newBPTree_(const std::string &tabname,const Column &col);
+	// insert in BPTree of correspondent type
+	void insertInBPTree_(void* bptree,const Column &col,DBData key,FilePos value);
+	// find in BPTree of correspondent type
+	std::vector<FilePos> findInBPTree_(void* bptree,const Column &col,DBData key);
+	// rangeFind in BPTree of correspondent type
+	std::vector<FilePos> rangeFindInBPTree_(void* bptree,const Column &col,DBData first,DBData last);
+	// delete the BPTree of correspondnet type, only call this function on destructor
+	void deleteBPTree_(void* bptree,const Column &col);
 public:
 	// Public methods
 

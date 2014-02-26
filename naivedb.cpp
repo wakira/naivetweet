@@ -78,6 +78,49 @@ bool NaiveDB::compareDBDataAtPos_(fstream &stream, FilePos pos, DBData comp) {
 	return gotval == comp;
 }
 
+std::vector<FilePos> NaiveDB::rangeFindInBPTree_(void* bptree,const Column &col,DBData first,DBData last) {
+	switch (col.type) {
+	case DBType::INT32: {
+		BPTree<int32_t,FilePos> *tree = static_cast<BPTree<int32_t,FilePos>*>(bptree);
+		return tree->rangeFind(first.int32,last.int32);
+	}
+	case DBType::INT64: {
+		BPTree<int64_t,FilePos> *tree = static_cast<BPTree<int64_t,FilePos>*>(bptree);
+		return tree->rangeFind(first.int64,last.int64);
+	}
+	case DBType::STRING: {
+		BPTree<string,FilePos> *tree = static_cast<BPTree<string,FilePos>*>(bptree);
+		return tree->rangeFind(first.str,last.str);
+	}
+	default: {
+		assert(0);
+	}
+	}
+}
+
+void NaiveDB::deleteBPTree_(void *bptree, const Column &col) {
+	switch (col.type) {
+	case DBType::INT32: {
+		BPTree<int32_t,FilePos> *tree = static_cast<BPTree<int32_t,FilePos>*>(bptree);
+		delete tree;
+		break;
+	}
+	case DBType::INT64: {
+		BPTree<int64_t,FilePos> *tree = static_cast<BPTree<int64_t,FilePos>*>(bptree);
+		delete tree;
+		break;
+	}
+	case DBType::STRING: {
+		BPTree<string,FilePos> *tree = static_cast<BPTree<string,FilePos>*>(bptree);
+		delete tree;
+		break;
+	}
+	default: {
+		assert(0);
+	}
+	}
+}
+
 std::vector<FilePos> NaiveDB::findInBPTree_(void *bptree, const Column &col, DBData key) {
 	switch (col.type) {
 	case DBType::INT32: {
@@ -320,7 +363,7 @@ std::vector<RecordHandle> NaiveDB::query(const string &tabname,
 	if (col.indexed) {
 		// indexed way
 		vector<FilePos> retpos = findInBPTree_(target_tab.bptree[key_col],col,key);
-		for (FilePos x : retpos)
+		for (FilePos &x : retpos)
 			retval.push_back(RecordHandle(tabname,x));
 		return retval;
 	} else {
@@ -357,15 +400,17 @@ std::vector<RecordHandle> NaiveDB::query(const string &tabname,
 
 std::vector<RecordHandle> NaiveDB::rangeQuery(const string &tabname,
 				  const string &key_col, DBData first, DBData last) {
-	std::vector<DBData> retval;
+	std::vector<RecordHandle> retval;
 	Table &target_tab = tables_.at(tabname);
 	int col_index = target_tab.colname_index.at(key_col);
 	Column col = target_tab.schema.at(col_index);
 	if (col.indexed) {
-		// TODO need to write helper function rangeFindInBPTree_
-
+		vector<FilePos> retpos = rangeFindInBPTree_(target_tab.bptree[key_col],col,first,last);
+		for (FilePos &x : retpos)
+			retval.push_back(RecordHandle(tabname,x));
 	} else
-		assert(0); // no trolling
+		assert(0); // no trolling me, please don't rangeQuery on unindexed column
+	return retval;
 }
 
 void NaiveDB::modify(RecordHandle handle, const string &colname, DBData val) {
@@ -399,10 +444,8 @@ NaiveDB::~NaiveDB() {
 	for (pair<std::string,Table> x : tables_) {
 		x.second.fileptr->close();
 		delete x.second.fileptr;
-		/*
-		for (Column col : iter.second.schema)
+		for (Column &col : x.second.schema)
 			if (col.indexed)
-				deleteBPTree_(iter.second.bptree[col.name],col);
-				*/
+				deleteBPTree_(x.second.bptree[col.name],col);
 	}
 }
