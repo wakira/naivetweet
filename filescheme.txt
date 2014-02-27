@@ -21,4 +21,5 @@ Byte		: content
 	in a chunk:
 		0 - 0 : single node/leaf/inner
 		1 - 2 :	slot_use
-		2 - 
+		keys
+		children/data

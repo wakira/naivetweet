@@ -9,6 +9,8 @@
 #include "naivedb.h"
 #include "tweetop.h"
 
+#include <iostream>
+
 using namespace std;
 
 static const size_t kMaxLine = 80;
@@ -44,13 +46,23 @@ NaiveDB *db;
 int64_t uid;
 
 void debug() {
-	fstream file("test.txt", ios::out |ios::binary);
-	char byte = 0;
-	writeToPos(file,15,byte);
-	file.close();
-	file.open("test.txt", ios::in | ios::out | ios::binary);
-	file.seekg(0,file.end);
-	printf("%d\n",file.tellg());
+	db = new NaiveDB("benchmark.xml");
+	for (long i = 0; i != 100000; ++i) {
+		vector<DBData> line;
+		DBData dbd(DBType::INT64);
+		dbd.int64 = i;
+		line.push_back(dbd);
+		line.push_back(dbd);
+		db->insert("bmtable",line);
+	}
+	for (long i = 0; i != 100000; ++i) {
+		DBData dbd(DBType::INT64);
+		dbd.int64 = i;
+		RecordHandle handle = db->query("bmtable","idxtest",dbd)[0];
+		printf("%d ",db->get(handle,"idxtest").int64);
+	}
+	printf("\n");
+	delete db;
 }
 
 int main()
@@ -755,12 +767,7 @@ bool validUsername(char *user) {
 	for (size_t i = 1; i != len; ++i)
 		if (!isalpha(user[i]) && !isdigit(user[i]) && user[i] != '_')
 			return false;
-	// check if the username already exists
-	DBData query_dat;
-	query_dat.type = DBType::STRING;
-	query_dat.str = user;
-	vector<RecordHandle> query_res = db->query("userinfo","user",query_dat);
-	return query_res.empty();
+	return TweetOp::userExist(db,user);
 }
 
 bool validName(char *name) {

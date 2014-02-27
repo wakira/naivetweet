@@ -23,4 +23,5 @@ unix: LIBS += -lncursesw
 
 OTHER_FILES += \
 	db.xml \
-	filescheme.txt
+	filescheme.txt \
+	benchmark.xml

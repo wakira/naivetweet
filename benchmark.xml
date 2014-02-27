@@ -1,0 +1,23 @@
+<? xml version="1.0" encoding="UTF-8"?>
+<database>
+	<tables>
+		<table>
+			<name>bmtable</name>
+			<columns>
+				<column>
+					<name>idxtest</name>
+					<type>int64</type>
+					<index>yes</index>
+					<unique>yes</unique>
+				</column>
+				<column>
+					<name>noidxtest</name>
+					<type>int64</type>
+					<index>no</index>
+					<unique>yes</unique>
+				</column>
+			</columns>
+		</table>
+	</tables>
+</database>
+

@@ -24,14 +24,10 @@ inline bool operator<(const TweetLine &lval,const TweetLine &rval) {
 	return lval.time >= rval.time;
 }
 
-class UserLine {
-public:
-	int64_t uid;
-	std::string username;
-	std::string birthday;
-	std::string name;
-	bool male;
-	std::string intro;
-};
+namespace TweetOp {
+
+bool userExist(NaiveDB *db, const char *user);
+
+}
 
 #endif // TWEETOP_H

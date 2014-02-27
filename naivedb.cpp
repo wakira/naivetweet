@@ -3,7 +3,6 @@
 #include <boost/property_tree/xml_parser.hpp>
 #include "naivedb.h"
 #include "diskfile.h"
-#include "spstring.hpp"
 
 using namespace std;
 using namespace boost::property_tree;
