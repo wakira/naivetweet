@@ -293,23 +293,55 @@ void viewPeople(RecordHandle handle) {
 		}
 
 		if (following) {
-			printw("[u] to unfo [x] to return\n");
+			printw("[u] to unfo [v] to view tweets [x] to return\n");
 			char keypress;
 			while (keypress = getch()) {
 				if (keypress == 'u' || keypress == 'U') {
 					TweetOp::unfollow(db,uid,id);
 					break;
 				}
+				if (keypress == 'v' || keypress == 'V') {
+					DBData publisher_d(DBType::INT64);
+					publisher_d.int64 = id;
+					vector<RecordHandle> tweets_handle = db->query("tweets","publisher",publisher_d);
+					vector<TweetLine> alltweets;
+					for (RecordHandle x : tweets_handle) {
+						bool deleted = db->get(x,"deleted").boolean;
+						if (!deleted) {
+							int32_t time = db->get(x,"time").int32;
+							int64_t author = db->get(x,"author").int64;
+							string content = db->get(x,"content").str;
+							alltweets.push_back(TweetLine(content,id,author,time));
+						}
+					}
+					tweetPageView(alltweets);
+				}
 				if (keypress == 'x' || keypress == 'X')
 					break;
 			}
 		} else {
-			printw("[f] to follow [x] to return\n");
+			printw("[f] to follow [v] to view tweets [x] to return\n");
 			char keypress;
 			while (keypress = getch()) {
 				if (keypress == 'f' || keypress == 'F') {
 					TweetOp::follow(db,uid,id);
 					break;
+				}
+				if (keypress == 'v' || keypress == 'V') {
+					DBData publisher_d(DBType::INT64);
+					publisher_d.int64 = id;
+					vector<RecordHandle> tweets_handle = db->query("tweets","publisher",publisher_d);
+					vector<TweetLine> alltweets;
+					for (RecordHandle x : tweets_handle) {
+						bool deleted = db->get(x,"deleted").boolean;
+						if (!deleted) {
+							int32_t time = db->get(x,"time").int32;
+							int64_t author = db->get(x,"author").int64;
+							string content = db->get(x,"content").str;
+							alltweets.push_back(TweetLine(content,id,author,time));
+						}
+					}
+					tweetPageView(alltweets);
 				}
 				if (keypress == 'x' || keypress == 'X')
 					break;
