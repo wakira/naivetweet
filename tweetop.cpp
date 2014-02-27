@@ -60,4 +60,68 @@ void registerAccount(NaiveDB *db, const char *user,
 	db->insert("userinfo",line);
 }
 
+void follow(NaiveDB *db, int64_t uid, int64_t id) {
+	DBData uid_d(DBType::INT64);
+	uid_d.int64 = uid;
+	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
+	bool deleted = false;
+	for (RecordHandle handle : query_res) {
+		if (db->get(handle,"b").int64 == id) {
+			deleted = true;
+			DBData tmp(DBType::BOOLEAN);
+			tmp.boolean = false;
+			db->modify(handle,"deleted",tmp);
+			break;
+		}
+	}
+
+	if (!deleted) {
+		vector<DBData> line;
+		DBData dbd(DBType::INT64);
+		dbd.int64 = uid;
+		line.push_back(dbd); // a
+		dbd.int64 = id;
+		line.push_back(dbd); // b
+		dbd.type = DBType::BOOLEAN;
+		dbd.boolean = false;
+		line.push_back(dbd); // deleted
+		db->insert("afob",line);
+	}
+}
+
+void unfollow(NaiveDB *db, int64_t uid, int64_t id) {
+	DBData uid_d(DBType::INT64);
+	uid_d.int64 = uid;
+	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
+	for (RecordHandle handle : query_res) {
+		if (db->get(handle,"b").int64 == id) {
+			DBData tmp(DBType::BOOLEAN);
+			tmp.boolean = true;
+			db->modify(handle,"deleted",tmp);
+			break;
+		}
+	}
+}
+
+void retweet(NaiveDB *db, int64_t uid, const TweetLine &tweet) {
+	int32_t unix_time = time(0);
+	vector<DBData> dbline;
+	DBData dbd(DBType::STRING);
+	dbd.str = tweet.content;
+	dbline.push_back(dbd); // content
+	dbd.type = DBType::INT64;
+	dbd.int64 = uid;
+	dbline.push_back(dbd); // publisher
+	dbd.int64 = tweet.author;
+	dbline.push_back(dbd); // author
+	dbd.type = DBType::INT32;
+	dbd.int32 = unix_time;
+	dbline.push_back(dbd); // time
+	dbd.type = DBType::BOOLEAN;
+	dbd.boolean = false;
+	dbline.push_back(dbd); // deleted
+
+	db->insert("tweets",dbline);
+}
+
 }

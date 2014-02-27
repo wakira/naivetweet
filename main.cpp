@@ -9,8 +9,6 @@
 #include "naivedb.h"
 #include "tweetop.h"
 
-#include <iostream>
-
 using namespace std;
 
 static const size_t kMaxLine = 80;
@@ -29,9 +27,6 @@ void tweetPageView(const vector<TweetLine> &alltweets);
 void userPageView(const vector<RecordHandle> &allusers_handle);
 
 /* Helper functions */
-void retweet(const TweetLine &tweet);
-void follow(int64_t id);
-void unfollow(int64_t id);
 void inputUntilCorrect(const char *prompt, char *input, bool(*test)(char*), const char *failprompt);
 bool validUsername(char *user);
 bool validPasswd(char *passwd);
@@ -78,49 +73,6 @@ int main()
 	endwin();
 	delete db;
 	return 0;
-}
-
-void follow(int64_t id) {
-	DBData uid_d(DBType::INT64);
-	uid_d.int64 = uid;
-	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
-	bool deleted = false;
-	for (RecordHandle handle : query_res) {
-		if (db->get(handle,"b").int64 == id) {
-			deleted = true;
-			DBData tmp(DBType::BOOLEAN);
-			tmp.boolean = false;
-			db->modify(handle,"deleted",tmp);
-			break;
-		}
-	}
-
-	if (!deleted) {
-		vector<DBData> line;
-		DBData dbd(DBType::INT64);
-		dbd.int64 = uid;
-		line.push_back(dbd); // a
-		dbd.int64 = id;
-		line.push_back(dbd); // b
-		dbd.type = DBType::BOOLEAN;
-		dbd.boolean = false;
-		line.push_back(dbd); // deleted
-		db->insert("afob",line);
-	}
-}
-
-void unfollow(int64_t id) {
-	DBData uid_d(DBType::INT64);
-	uid_d.int64 = uid;
-	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
-	for (RecordHandle handle : query_res) {
-		if (db->get(handle,"b").int64 == id) {
-			DBData tmp(DBType::BOOLEAN);
-			tmp.boolean = true;
-			db->modify(handle,"deleted",tmp);
-			break;
-		}
-	}
 }
 
 void changeProfile() {
@@ -243,26 +195,6 @@ void viewTweets() {
 	clear();
 }
 
-void retweet(const TweetLine &tweet) {
-	int32_t unix_time = time(0);
-	vector<DBData> dbline;
-	DBData dbd(DBType::STRING);
-	dbd.str = tweet.content;
-	dbline.push_back(dbd); // content
-	dbd.type = DBType::INT64;
-	dbd.int64 = uid;
-	dbline.push_back(dbd); // publisher
-	dbd.int64 = tweet.author;
-	dbline.push_back(dbd); // author
-	dbd.type = DBType::INT32;
-	dbd.int32 = unix_time;
-	dbline.push_back(dbd); // time
-	dbd.type = DBType::BOOLEAN;
-	dbd.boolean = false;
-	dbline.push_back(dbd); // deleted
-
-	db->insert("tweets",dbline);
-}
 
 void tweetPageView(const vector<TweetLine> &alltweets) {
 	static const int kTweetPerPage = 15;
@@ -326,7 +258,7 @@ void tweetPageView(const vector<TweetLine> &alltweets) {
 				getstr(input);
 				int choice = atoi(input);
 				if (choice >= 0 && choice < alltweets.size()) {
-					retweet(alltweets[choice]);
+					TweetOp::retweet(db,uid,alltweets[choice]);
 					noexit = false;
 					break;
 				} else {
@@ -382,7 +314,7 @@ void viewPeople(RecordHandle handle) {
 			char keypress;
 			while (keypress = getch()) {
 				if (keypress == 'u' || keypress == 'U') {
-					unfollow(id);
+					TweetOp::unfollow(db,uid,id);
 					break;
 				}
 				if (keypress == 'x' || keypress == 'X')
@@ -393,7 +325,7 @@ void viewPeople(RecordHandle handle) {
 			char keypress;
 			while (keypress = getch()) {
 				if (keypress == 'f' || keypress == 'F') {
-					follow(id);
+					TweetOp::follow(db,uid,id);
 					break;
 				}
 				if (keypress == 'x' || keypress == 'X')
@@ -534,6 +466,7 @@ void findPeople() {
 
 void listFriends() {
 	clear();
+
 	DBData uid_d(DBType::INT64);
 	uid_d.int64 = uid;
 	vector<RecordHandle> query_res = db->query("afob","a",uid_d);
@@ -613,7 +546,7 @@ GOTO_TAG_home:
 }
 
 void welcome() {
-	printw("Welcome to naivetweet, press 'l' to login, 'r' to register, 'x' to quit\n");
+	printw("Welcome to naivetweet, press [l] to login, [r] to register, [x] to quit\n");
 	refresh();
 	noecho();
 	while (true) {
@@ -636,7 +569,6 @@ void welcome() {
 void registerAccount() {
 	char user[kMaxLine], passwd[kMaxLine], birthday[kMaxLine],
 		 name[kMaxLine], gender[kMaxLine], intro[kMaxLine];
-	bool retry = false;
 
 	clear();
 	printw("Register\n");

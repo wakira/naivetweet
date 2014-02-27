@@ -43,6 +43,15 @@ void registerAccount(NaiveDB *db,const char *user,
 					 const char *gender,
 					 const char *intro);
 
+// follow(...) make uid follow id
+void follow(NaiveDB *db, int64_t uid, int64_t id);
+
+// unfollow(...) make uid unfollow id
+void unfollow(NaiveDB *db, int64_t uid, int64_t id);
+
+// retweet(...) retweet helper
+void retweet(NaiveDB *db, int64_t uid, const TweetLine &tweet);
+
 }
 
 #endif // TWEETOP_H
