@@ -52,6 +52,9 @@ void unfollow(NaiveDB *db, int64_t uid, int64_t id);
 // retweet(...) retweet helper
 void retweet(NaiveDB *db, int64_t uid, const TweetLine &tweet);
 
+// newTweet(...) new tweet
+void newTweet(NaiveDB *db, int64_t uid, const char *content);
+
 }
 
 #endif // TWEETOP_H

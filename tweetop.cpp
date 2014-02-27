@@ -1,4 +1,5 @@
 #include "tweetop.h"
+#include <ctime>
 
 using namespace std;
 
@@ -113,6 +114,26 @@ void retweet(NaiveDB *db, int64_t uid, const TweetLine &tweet) {
 	dbd.int64 = uid;
 	dbline.push_back(dbd); // publisher
 	dbd.int64 = tweet.author;
+	dbline.push_back(dbd); // author
+	dbd.type = DBType::INT32;
+	dbd.int32 = unix_time;
+	dbline.push_back(dbd); // time
+	dbd.type = DBType::BOOLEAN;
+	dbd.boolean = false;
+	dbline.push_back(dbd); // deleted
+
+	db->insert("tweets",dbline);
+}
+
+void newTweet(NaiveDB *db, int64_t uid, const char *content) {
+	int32_t unix_time = time(0);
+	vector<DBData> dbline;
+	DBData dbd(DBType::STRING);
+	dbd.str = content;
+	dbline.push_back(dbd); // content
+	dbd.type = DBType::INT64;
+	dbd.int64 = uid;
+	dbline.push_back(dbd); // publisher
 	dbline.push_back(dbd); // author
 	dbd.type = DBType::INT32;
 	dbd.int32 = unix_time;
