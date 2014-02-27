@@ -685,6 +685,7 @@ void registerAccount() {
 void login() {
 	bool retry = true;
 	vector<RecordHandle> query_res;
+	int64_t login_res;
 	while (retry) {
 		echo();
 		printw("Username:");
@@ -694,21 +695,15 @@ void login() {
 		noecho();
 		getstr(passwd);
 
-		DBData user_d(DBType::STRING);
-		user_d.str = user;
-		query_res = db->query("userinfo","user",user_d);
-		if (query_res.empty()) {
+		login_res = TweetOp::login(db,user,passwd);
+		if (login_res == -1)
 			printw("User not found!\n");
-		} else {
-			string correct_passwd = db->get(query_res[0],"passwd").str;
-			if (strcmp(correct_passwd.c_str(),passwd) == 0)
-				retry = false;
-			else
-				printw("Password not correct!\n");
-		}
+		else if (login_res == 0)
+			printw("Incorrect password!\n");
+		else
+			break; // success
 	}
-	DBData uid_d = db->get(query_res[0],"id");
-	uid = uid_d.int64;
+	uid = login_res;
 	clear();
 	home();
 }
