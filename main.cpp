@@ -661,24 +661,7 @@ void registerAccount() {
 	inputUntilCorrect("  A short introduction (no more than 70 characters):",
 			intro, validIntro, "  Too long!");
 
-	vector<DBData> line;
-	DBData user_d(DBType::STRING), passwd_d(DBType::STRING),
-			birthday_d(DBType::STRING), name_d(DBType::STRING),
-			gender_d(DBType::BOOLEAN), intro_d(DBType::STRING);
-	user_d.str = user;
-	line.push_back(user_d);
-	passwd_d.str = passwd;
-	line.push_back(passwd_d);
-	birthday_d.str = birthday;
-	line.push_back(birthday_d);
-	name_d.str = name;
-	line.push_back(name_d);
-	gender_d.boolean = strcmp(gender,"M") == 0? true:false;
-	line.push_back(gender_d);
-	intro_d.str = intro;
-	line.push_back(intro_d);
-	db->insert("userinfo",line);
-
+	TweetOp::registerAccount(db,user,passwd,birthday,name,gender,intro);
 	login();
 }
 

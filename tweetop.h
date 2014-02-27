@@ -26,10 +26,22 @@ inline bool operator<(const TweetLine &lval,const TweetLine &rval) {
 
 namespace TweetOp {
 
+// userExist(...) note that it returns true even when user is deleted
+// it's not a bug
 bool userExist(NaiveDB *db, const char *user);
 
-// returns uid when success, -1 when user is not found, 0 when password is incorrect
+// login(...) returns uid when success, -1 when user is not found, 0 when password is incorrect
 int64_t login(NaiveDB *db, const char *user, const char *passwd);
+
+// registerAccount(...)
+// call this function after confirming that user does not exist
+// be careful about these arguments
+void registerAccount(NaiveDB *db,const char *user,
+					 const char *passwd,
+					 const char *birthday,
+					 const char *name,
+					 const char *gender,
+					 const char *intro);
 
 }
 
