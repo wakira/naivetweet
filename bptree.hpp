@@ -11,6 +11,7 @@
 #include <vector>
 #include <fstream>
 #include <string>
+#include <map>
 #include <cstring>
 #include <cassert>
 #include "diskfile.h"
@@ -34,6 +35,9 @@ public:
 private:
 	size_t keysize_;
 	size_t valsize_;
+
+	// Cache configuration
+	static const size_t kMaxCachedNode = 10000;
 public:
 	// Base class for all nodes
 	struct Node {
@@ -74,17 +78,20 @@ public:
 private:
 	// Private data members
 
-	Node *root_;
-
 	FilePos rootpos_;
 
 	std::string filename_;
+
+	std::map<FilePos, Node*> cache_;
 	// Private helper member functions
 
+	void swapOutAllCache_(std::fstream &stream);
 	void insert_in_parent_(std::fstream &stream, std::stack<FilePos> parentpos, KeyType newkey, FilePos newnode_pos);
-	Node* load_node_(std::fstream &stream, FilePos nodepos) const;
+	Node* load_node_(std::fstream &stream, FilePos nodepos);
+	Node* load_node_from_disk_(std::fstream &stream, FilePos nodepos) const;
 	void load_root_node_(std::fstream &stream);
 	void write_node_(std::fstream &stream, FilePos nodepos, Node* p);
+	void write_node_to_disk_(std::fstream &stream, FilePos nodepos, Node* p);
 	void create_empty_tree_(std::fstream &stream);
 	void create_new_root_(std::fstream &stream, KeyType newkey, FilePos lptr, FilePos rptr);
 	void initConfiguration_(size_t keysize, size_t valsize);
@@ -100,7 +107,7 @@ public:
 
 	~BPTree();
 
-	std::vector<ValType> find(const KeyType &key) const;
+	std::vector<ValType> find(const KeyType &key);
 
 	void insert(const KeyType &key, const ValType &value);
 
@@ -116,7 +123,9 @@ public:
 template <typename KeyType, typename ValType>
 BPTree<KeyType,ValType>::~BPTree() {
 
-	delete root_;
+	std::fstream file(filename_.c_str(), std::ios::in | std::ios::out |
+					  std::ios::binary);
+	swapOutAllCache_(file);
 }
 
 template <typename KeyType, typename ValType>
@@ -169,12 +178,11 @@ void BPTree<KeyType,ValType>::
 	FilePos rootpos;
 	getFromPos(stream,IdxFile::kRootPointerPos,rootpos);
 	rootpos_ = rootpos;
-	root_ = load_node_(stream,rootpos);
 }
 
 template <typename KeyType, typename ValType>
 typename BPTree<KeyType,ValType>::Node* BPTree<KeyType,ValType>::
-		load_node_(std::fstream &stream, FilePos nodepos) const {
+		load_node_from_disk_(std::fstream &stream, FilePos nodepos) const {
 
 	Node *node;
 	// the first byte determines if node type is a leaf
@@ -212,7 +220,7 @@ typename BPTree<KeyType,ValType>::Node* BPTree<KeyType,ValType>::
 // Specialization for string and FilePos
 template <>
 inline typename BPTree<std::string,FilePos>::Node* BPTree<std::string,FilePos>::
-		load_node_(std::fstream &stream, FilePos nodepos) const {
+		load_node_from_disk_(std::fstream &stream, FilePos nodepos) const {
 
 	Node *node;
 	// the first byte determines if node type is a leaf
@@ -248,30 +256,43 @@ inline typename BPTree<std::string,FilePos>::Node* BPTree<std::string,FilePos>::
 }
 
 template <typename KeyType, typename ValType>
+typename BPTree<KeyType,ValType>::Node* BPTree<KeyType,ValType>::
+		load_node_(std::fstream &stream, FilePos nodepos) {
+
+	// found in cache
+	if (cache_.count(nodepos) > 0)
+		return cache_[nodepos];
+	if (cache_.size() == kMaxCachedNode) {
+		// swap out all cache
+		swapOutAllCache_(stream);
+	}
+	cache_[nodepos] = load_node_from_disk_(stream,nodepos);
+	return cache_[nodepos];
+}
+
+template <typename KeyType, typename ValType>
 std::vector<ValType> BPTree<KeyType,ValType>::
-		find(const KeyType &key) const {
+		find(const KeyType &key) {
 
 	std::vector<ValType> retval;
 	std::fstream stream(filename_,std::ios::in | std::ios::out |
 						std::ios::binary);
-	Node *p = root_;
+	Node *p = load_node_(stream,rootpos_);
 	// Locate leaf or overflow node
 	while (p->nodetype == IdxFile::INNER) {
-		InnerNode *inner_node = dynamic_cast<InnerNode*>(p);
+		InnerNode *inner_node = static_cast<InnerNode*>(p);
 		size_t next_child_index = find_lower_(inner_node, key);
 		Node* newnode = load_node_(stream,inner_node->children[next_child_index]);
-		if (p != root_)
-			delete p;
 		p = newnode;
 	}
-	Leaf *leaf_node = dynamic_cast<Leaf*>(p);
+	Leaf *leaf_node = static_cast<Leaf*>(p);
 
 	// Find in that node
 	// Search in inner node, find correct children and continue the recursion
 	size_t data_index = find_lower_(leaf_node, key);
-	if (leaf_node->overflowptr[data_index] && leaf_node->keys[data_index] == key) {
+	if (leaf_node->overflowptr[data_index] == true && leaf_node->keys[data_index] == key) {
 		// process duplicate key
-		Leaf *overflow = dynamic_cast<Leaf*>(
+		Leaf *overflow = static_cast<Leaf*>(
 					load_node_(stream,leaf_node->data[data_index]));
 		while (true) {
 			for (size_t i = 0; i != overflow->slotuse; ++i)
@@ -279,18 +300,16 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 			if (overflow->next_leaf == 0)
 				break;
 			else {
-				Leaf *next_overflow = dynamic_cast<Leaf*>(
+				Leaf *next_overflow = static_cast<Leaf*>(
 							load_node_(stream,overflow->next_leaf));
-				delete overflow;
+				//delete overflow;
 				overflow = next_overflow;
 			}
 		}
-		delete overflow;
+		//delete overflow;
 	} else if (leaf_node->keys[data_index] == key)
 		// normal situation, determine if key is found and then add the key
 		retval.push_back(leaf_node->data[data_index]);
-	if (p != root_)
-		delete p;
 	return retval;
 }
 
@@ -320,26 +339,20 @@ void BPTree<KeyType,ValType>::
 	std::stack<FilePos> parent_trace;
 	parent_trace.push(rootpos_);
 	std::stack<size_t> index_trace;
-	Node *p = root_;
+	Node *p = load_node_(stream,rootpos_);
 	while (p->nodetype == IdxFile::INNER) {
-		InnerNode *inner_node = dynamic_cast<InnerNode*>(p);
+		InnerNode *inner_node = static_cast<InnerNode*>(p);
 		size_t next_child_index = find_lower_(inner_node, key);
 		Node* newnode = load_node_(stream,inner_node->children[next_child_index]);
 		parent_trace.push(inner_node->children[next_child_index]);
-		if (p != root_) {
-			delete p;
-		}
 		p = newnode;
 		index_trace.push(next_child_index);
 	}
-	Leaf *old_leaf = dynamic_cast<Leaf*>(p);
+	Leaf *old_leaf = static_cast<Leaf*>(p);
 	FilePos nodepos = parent_trace.top();
 
 	if (insert_in_leaf_(stream,old_leaf,key,value)) {
 		write_node_(stream,nodepos,old_leaf);
-		if (p != root_) {
-			delete p;
-		}
 		return;
 	} else {
 		// split current node
@@ -384,12 +397,10 @@ void BPTree<KeyType,ValType>::
 		old_leaf->next_leaf = newnode_pos;
 		write_node_(stream,nodepos,old_leaf);
 		write_node_(stream,newnode_pos,new_leaf);
-		delete new_leaf;
-		if (old_leaf == root_) {
+		//delete new_leaf;
+		if (nodepos == rootpos_) {
 			create_new_root_(stream,midkey,nodepos,newnode_pos);
-			delete old_leaf;
 		} else {
-			delete old_leaf;
 			parent_trace.pop(); // remove leaf node from parent_trace
 			insert_in_parent_(stream,parent_trace,midkey,newnode_pos);
 		}
@@ -413,17 +424,17 @@ bool BPTree<KeyType,ValType>::
 	}
 	if (duplicate) {
 		// duplicate key
-		if (leaf_node->overflowptr[i]) {
+		if (leaf_node->overflowptr[i] == true) {
 			// already has overflow node
 			// locate the last one and insert in it
-			Leaf *overflow = dynamic_cast<Leaf*>(
+			Leaf *overflow = static_cast<Leaf*>(
 						load_node_(stream,leaf_node->data[i]));
 			FilePos overflow_pos = leaf_node->data[i];
 			while (overflow->next_leaf != 0) {
 				overflow_pos = overflow->next_leaf;
-				Leaf *next_overflow = dynamic_cast<Leaf*>(
+				Leaf *next_overflow = static_cast<Leaf*>(
 							load_node_(stream,overflow->next_leaf));
-				delete overflow;
+				//delete overflow;
 				overflow = next_overflow;
 			}
 			if (overflow->isFull()) {
@@ -436,14 +447,14 @@ bool BPTree<KeyType,ValType>::
 				FilePos new_overflow_pos = IdxFile::consumeFreeSpace(stream);
 				overflow->next_leaf = new_overflow_pos;
 				write_node_(stream,new_overflow_pos,new_overflow);
-				delete new_overflow;
+				//delete new_overflow;
 			} else {
 				overflow->keys[overflow->slotuse] = key;
 				overflow->data[overflow->slotuse] = value;
 				overflow->slotuse++;
 			}
 			write_node_(stream,overflow_pos,overflow); // write changes back
-			delete overflow;
+			//delete overflow;
 		} else {
 			// need to create overflow node
 			Leaf *new_overflow = new Leaf(this);
@@ -457,7 +468,7 @@ bool BPTree<KeyType,ValType>::
 			leaf_node->data[i] = new_overflow_pos;
 			leaf_node->overflowptr[i] = true;
 			write_node_(stream,new_overflow_pos,new_overflow);
-			delete new_overflow;
+			//delete new_overflow;
 		}
 		return true;
 	} else if (leaf_node->isFull()) {
@@ -478,7 +489,7 @@ bool BPTree<KeyType,ValType>::
 // Specialization for string and filepos
 template <>
 inline void BPTree<std::string,FilePos>::
-		write_node_(std::fstream &stream, FilePos nodepos, Node *p) {
+		write_node_to_disk_(std::fstream &stream, FilePos nodepos, Node *p) {
 
 	char byte = p->nodetype;
 	writeToPos(stream,nodepos,byte);
@@ -486,7 +497,7 @@ inline void BPTree<std::string,FilePos>::
 	switch (p->nodetype) {
 	case IdxFile::INNER:
 	case IdxFile::SINGLE: {
-		InnerNode* inner = dynamic_cast<InnerNode*>(p);
+		InnerNode* inner = static_cast<InnerNode*>(p);
 		for (size_t i = 0; i != BPOrder - 1; ++i)
 			binary_write_s(stream,inner->keys[i],keysize_);
 		for (size_t i = 0; i != BPOrder; ++i)
@@ -498,7 +509,7 @@ inline void BPTree<std::string,FilePos>::
 		break;
 	}
 	default: {
-		Leaf* leaf = dynamic_cast<Leaf*>(p);
+		Leaf* leaf = static_cast<Leaf*>(p);
 		for (size_t i = 0; i != BPOrder - 1; ++i)
 			binary_write_s(stream,leaf->keys[i],keysize_);
 		for (size_t i = 0; i != BPOrder - 1; ++i)
@@ -517,7 +528,7 @@ inline void BPTree<std::string,FilePos>::
 
 template <typename KeyType, typename ValType>
 void BPTree<KeyType,ValType>::
-		write_node_(std::fstream &stream, FilePos nodepos, Node *p) {
+		write_node_to_disk_(std::fstream &stream, FilePos nodepos, Node *p) {
 
 	char byte = p->nodetype;
 	writeToPos(stream,nodepos,byte);
@@ -525,7 +536,7 @@ void BPTree<KeyType,ValType>::
 	switch (p->nodetype) {
 	case IdxFile::INNER:
 	case IdxFile::SINGLE: {
-		InnerNode* inner = dynamic_cast<InnerNode*>(p);
+		InnerNode *inner = static_cast<InnerNode*>(p);
 		for (size_t i = 0; i != BPOrder - 1; ++i)
 			binary_write(stream,inner->keys[i]);
 		for (size_t i = 0; i != BPOrder; ++i)
@@ -537,7 +548,7 @@ void BPTree<KeyType,ValType>::
 		break;
 	}
 	default: {
-		Leaf* leaf = dynamic_cast<Leaf*>(p);
+		Leaf *leaf = static_cast<Leaf*>(p);
 		for (size_t i = 0; i != BPOrder - 1; ++i)
 			binary_write(stream,leaf->keys[i]);
 		for (size_t i = 0; i != BPOrder - 1; ++i)
@@ -556,14 +567,21 @@ void BPTree<KeyType,ValType>::
 
 template <typename KeyType, typename ValType>
 void BPTree<KeyType,ValType>::
+		write_node_(std::fstream &stream, FilePos nodepos, Node *p) {
+
+	if (cache_.count(nodepos) > 0) {
+		return; // no need to write to disk
+	} else
+		write_node_to_disk_(stream,nodepos,p);
+}
+
+template <typename KeyType, typename ValType>
+void BPTree<KeyType,ValType>::
 		insert_in_parent_(std::fstream &stream, std::stack<FilePos> parentpos, KeyType newkey, FilePos newnode_pos) {
 
 	FilePos nodepos = parentpos.top();
 	InnerNode *p;
-	if (nodepos == rootpos_)
-		p = dynamic_cast<InnerNode*>(root_);
-	else
-		p = dynamic_cast<InnerNode*>(load_node_(stream, nodepos));
+	p = static_cast<InnerNode*>(load_node_(stream, nodepos));
 	if (p->isFull()) {
 		// split innernode
 		size_t newval_pos = find_lower_(p, newkey);
@@ -607,8 +625,8 @@ void BPTree<KeyType,ValType>::
 		FilePos newinner_pos = IdxFile::consumeFreeSpace(stream);
 		write_node_(stream,nodepos,p);
 		write_node_(stream,newinner_pos,new_inner);
-		delete new_inner;
-		if (p == root_) {
+		//delete new_inner;
+		if (nodepos == rootpos_) {
 			create_new_root_(stream,midkey,nodepos,newinner_pos);
 		} else {
 			parentpos.pop(); // remove this node from parent_trace
@@ -625,8 +643,6 @@ void BPTree<KeyType,ValType>::
 		write_node_(stream,nodepos,p);
 	}
 
-	if (p != root_)
-		delete p;
 }
 
 template <typename KeyType, typename ValType>
@@ -642,7 +658,6 @@ void BPTree<KeyType,ValType>::
 	FilePos rootpos = IdxFile::consumeFreeSpace(stream);
 	write_node_(stream,rootpos,newroot);
 	writeToPos(stream,IdxFile::kRootPointerPos,rootpos);
-	root_ = newroot;
 	rootpos_ = rootpos;
 }
 
@@ -676,17 +691,15 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 	std::vector<ValType> retval;
 	std::fstream stream(filename_,std::ios::in | std::ios::out |
 						std::ios::binary);
-	Node *p = root_;
+	Node *p = load_node_(stream,rootpos_);
 	// Locate leaf or overflow node
 	while (p->nodetype == IdxFile::INNER) {
-		InnerNode *inner_node = dynamic_cast<InnerNode*>(p);
+		InnerNode *inner_node = static_cast<InnerNode*>(p);
 		size_t next_child_index = find_lower_(inner_node, first);
 		Node* newnode = load_node_(stream,inner_node->children[next_child_index]);
-		if (p != root_)
-			delete p;
 		p = newnode;
 	}
-	Leaf *leaf_node = dynamic_cast<Leaf*>(p);
+	Leaf *leaf_node = static_cast<Leaf*>(p);
 	KeyType key = first;
 
 	// Find in that node
@@ -696,7 +709,7 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 	while (key <= last) {
 		if (leaf_node->overflowptr[data_index] && leaf_node->keys[data_index] == key) {
 			// process duplicate key
-			Leaf *overflow = dynamic_cast<Leaf*>(
+			Leaf *overflow = static_cast<Leaf*>(
 						load_node_(stream,leaf_node->data[data_index]));
 			while (true) {
 				for (size_t i = 0; i != overflow->slotuse; ++i)
@@ -704,13 +717,13 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 				if (overflow->next_leaf == 0)
 					break;
 				else {
-					Leaf *next_overflow = dynamic_cast<Leaf*>(
+					Leaf *next_overflow = static_cast<Leaf*>(
 								load_node_(stream,overflow->next_leaf));
-					delete overflow;
+					//delete overflow;
 					overflow = next_overflow;
 				}
 			}
-			delete overflow;
+			//delete overflow;
 		} else if (leaf_node->keys[data_index] == key) {
 			// normal situation, determine if key is found and then add the key
 			retval.push_back(leaf_node->data[data_index]);
@@ -718,9 +731,9 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 
 		// change leaf_node ptr and data_index
 		if (data_index + 1 >= leaf_node->slotuse && leaf_node->next_leaf != 0) {
-			Leaf *next_leaf = dynamic_cast<Leaf*>(
+			Leaf *next_leaf = static_cast<Leaf*>(
 						load_node_(stream,leaf_node->next_leaf));
-			delete leaf_node;
+			//delete leaf_node;
 			leaf_node = next_leaf;
 			p = next_leaf;
 			data_index = 0;
@@ -732,9 +745,19 @@ std::vector<ValType> BPTree<KeyType,ValType>::
 			key = leaf_node->keys[data_index];
 		}
 	}
-	if (p != root_)
-		delete p;
 	return retval;
+}
+
+
+template <typename KeyType, typename ValType>
+void BPTree<KeyType,ValType>::
+			swapOutAllCache_(std::fstream &stream) {
+
+	for (auto &pair : cache_) {
+		write_node_to_disk_(stream,pair.first,pair.second);
+		delete pair.second;
+	}
+	cache_.clear();
 }
 
 #endif // BPTREE_HPP
