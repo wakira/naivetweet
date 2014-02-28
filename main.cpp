@@ -358,6 +358,8 @@ void userPageView(const vector<RecordHandle> &allusers_handle) {
 	static const int kUserPerPage = 15;
 	int page = 1;
 	int max_page = (allusers_handle.size() - 1)/kUserPerPage + 1;
+	if (allusers_handle.empty())
+		max_page = 1;
 	bool noexit = true;
 	while (noexit) {
 		clear();
