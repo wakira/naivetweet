@@ -25,7 +25,7 @@ all: naivetweet
 clean:
 	rm $(OBJECTS) naivetweet
 
-benchmark: naivedb.o diskfile.o
+benchmark: naivedb.o diskfile.o benchmark.cpp
 	$(CXX) $(CXXFLAGS) $(LIBS) benchmark.cpp naivedb.o diskfile.o -o benchmark
 	./benchmark
 	rm benchmark bmtable.dat bmtable_id.idx
