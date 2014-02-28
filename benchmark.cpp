@@ -45,5 +45,22 @@ int main() {
 	clock_t after_insert = clock();
 	cout << "Range query completed after " << 
 		((double)(after_insert - before_insert)/CLOCKS_PER_SEC*1000) << "ms" << endl;
+
+	cout << "Verifying" << endl;
+	bool success = true;
+	for (long i = 1; i <= 1000000; ++i) {
+		DBData dbd(DBType::INT64);
+		dbd.int64 = i;
+		RecordHandle handle = db.query("bmtable","id",dbd)[0];
+		int64_t ret = db.get(handle,"id").int64;
+		if (ret != i) {
+			cout << "  Fail" << endl;
+			success = false;
+			break;
+		}
+	}
+	if (success)
+		cout << "  OK!" << endl;
+
 	return 0;
 }
