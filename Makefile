@@ -8,7 +8,7 @@ MAKEFILE      = Makefile
 
 CC            = gcc
 CXX           = g++
-CXXFLAGS      = -pipe -march=x86-64 -mtune=generic -O2 -pipe -fstack-protector --param=ssp-buffer-size=4 -std=c++0x -Wall -W
+CXXFLAGS      = -pipe -march=x86-64 -mtune=generic -O2 -pipe -fstack-protector --param=ssp-buffer-size=4 -std=c++0x -Wall
 LIBS          = -lncursesw 
 
 ####### Files

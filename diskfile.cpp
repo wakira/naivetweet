@@ -24,7 +24,7 @@ int64_t DatFile::increasePrimaryId(fstream &stream) {
 	getFromPos(stream,DatFile::kPidPos,pid);
 	writeToPos(stream,DatFile::kPidPos,pid + 1);
 	stream.seekg(old_g);
-	stream.seekp(old_g);
+	stream.seekp(old_p);
 	return pid + 1;
 }
 
@@ -68,11 +68,11 @@ FilePos IdxFile::consumeFreeSpace(fstream &stream) {
 		// return position pointing to file end
 		stream.seekp(0, stream.end);
 	} else {
-		FilePos current_chunk = next_flpos;
+		FilePos next_chunk = next_flpos;
 		// a free chunk is found
 		// remove it from free list
-		getFromPos(stream,next_flpos,next_flpos);
-		writeToPos(stream,IdxFile::kFlHeadPos,next_flpos);
+		getFromPos(stream,next_flpos,next_chunk);
+		writeToPos(stream,IdxFile::kFlHeadPos,next_chunk);
 	}
 	return stream.tellp();
 }

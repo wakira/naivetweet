@@ -54,7 +54,7 @@ void debug() {
 		DBData dbd(DBType::INT64);
 		dbd.int64 = i;
 		RecordHandle handle = db->query("bmtable","idxtest",dbd)[0];
-		printf("%d ",db->get(handle,"idxtest").int64);
+		printf("%ld ",db->get(handle,"idxtest").int64);
 	}
 	printf("\n");
 	delete db;
@@ -655,7 +655,7 @@ void inputUntilCorrect(const char *prompt, char *input, bool(*test)(char*),
 
 bool validBirthday(char *birthday) {
 	char buf[kMaxLine];
-	struct tm raw = {0};
+	struct tm raw = {}; // c++ style initialization
 	// %F stands for %Y-%m-%d
 	strptime(birthday, "%F", &raw);
 	mktime(&raw);
